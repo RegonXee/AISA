@@ -28,7 +28,6 @@
 - **语言**: TypeScript
 - **样式**: Tailwind CSS
 - **AI**: DeepSeek API (deepseek-chat)
-- **部署**: Vercel
 
 ## 本地开发
 
