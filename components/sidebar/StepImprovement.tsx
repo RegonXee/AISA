@@ -60,7 +60,7 @@ export default function StepImprovement({
         <input value={targetMetric} onChange={(event) => setTargetMetric(event.target.value)} placeholder="目标指标" className="rounded-lg border border-dark-border bg-dark-bg px-2 py-2 text-xs text-gray-100 placeholder-gray-500" />
         <input type="number" value={targetValue} onChange={(event) => setTargetValue(event.target.value)} placeholder="目标值" className="rounded-lg border border-dark-border bg-dark-bg px-2 py-2 text-xs text-gray-100 placeholder-gray-500" />
       </div>
-      <button onClick={createTask} disabled={!problem.trim() || !actionPlan.trim() || !nextEvidenceDate} className="w-full rounded-lg bg-secondary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-secondary/90 disabled:bg-gray-600">
+      <button onClick={createTask} disabled={!problem.trim() || !actionPlan.trim() || !nextEvidenceDate || !targetMetric.trim() || !targetValue.trim()} className="w-full rounded-lg bg-secondary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-secondary/90 disabled:bg-gray-600">
         创建改进任务
       </button>
       {status && <p className="rounded-lg border border-dark-border bg-dark-bg p-3 text-xs text-gray-300">{status}</p>}

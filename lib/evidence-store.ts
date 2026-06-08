@@ -6,6 +6,7 @@ export type TaskStatus = 'planned' | 'in-progress' | 'completed';
 
 export interface Artifact {
   id: string;
+  ownerUsername: string;
   kind: ArtifactKind;
   title: string;
   inputSummary: string;
@@ -15,6 +16,7 @@ export interface Artifact {
 
 export interface CollaborationLog {
   id: string;
+  ownerUsername: string;
   artifactId: string;
   artifactKind: ArtifactKind;
   artifactTitle: string;
@@ -37,6 +39,7 @@ export interface EvidencePoint {
 
 export interface ImprovementTask {
   id: string;
+  ownerUsername: string;
   sourceArtifactId?: string;
   sourceArtifactKind?: ArtifactKind;
   problem: string;
@@ -95,6 +98,14 @@ async function writeStore(data: StoreData) {
   await fs.writeFile(STORE_PATH, JSON.stringify(data, null, 2), 'utf8');
 }
 
+export function filterStoreByUser(data: StoreData, ownerUsername: string): StoreData {
+  return {
+    artifacts: data.artifacts.filter((item) => item.ownerUsername === ownerUsername),
+    collaborationLogs: data.collaborationLogs.filter((item) => item.ownerUsername === ownerUsername),
+    improvementTasks: data.improvementTasks.filter((item) => item.ownerUsername === ownerUsername),
+  };
+}
+
 export async function createArtifact(input: Omit<Artifact, 'id' | 'createdAt'>) {
   const store = await readStore();
   const artifact: Artifact = {
@@ -140,10 +151,13 @@ export async function createImprovementTask(
 
 export async function addEvidencePoint(
   taskId: string,
+  ownerUsername: string,
   evidence: Omit<EvidencePoint, 'id' | 'collectedAt'>
 ) {
   const store = await readStore();
-  const task = store.improvementTasks.find((item) => item.id === taskId);
+  const task = store.improvementTasks.find(
+    (item) => item.id === taskId && item.ownerUsername === ownerUsername
+  );
   if (!task) throw new Error('未找到改进任务');
 
   const point: EvidencePoint = {
@@ -163,9 +177,16 @@ export async function addEvidencePoint(
   return task;
 }
 
-export async function updateTaskStatus(taskId: string, status: TaskStatus, achieved?: boolean) {
+export async function updateTaskStatus(
+  taskId: string,
+  ownerUsername: string,
+  status: TaskStatus,
+  achieved?: boolean
+) {
   const store = await readStore();
-  const task = store.improvementTasks.find((item) => item.id === taskId);
+  const task = store.improvementTasks.find(
+    (item) => item.id === taskId && item.ownerUsername === ownerUsername
+  );
   if (!task) throw new Error('未找到改进任务');
   task.status = status;
   task.achieved = achieved;

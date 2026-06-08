@@ -43,14 +43,17 @@ export default function SidebarPanel({
       if (detail?.artifact) setPageArtifact(detail.artifact);
       if (detail?.aiOutput) setPageAiOutput(detail.aiOutput);
     };
+    const handleLogin = () => setRefreshKey((value) => value + 1);
 
     readOutput();
     const observer = new MutationObserver(readOutput);
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     window.addEventListener('aisa-artifact', handleArtifact);
+    window.addEventListener('aisa-login', handleLogin);
     return () => {
       observer.disconnect();
       window.removeEventListener('aisa-artifact', handleArtifact);
+      window.removeEventListener('aisa-login', handleLogin);
     };
   }, []);
 
@@ -96,4 +99,3 @@ export default function SidebarPanel({
     </aside>
   );
 }
-

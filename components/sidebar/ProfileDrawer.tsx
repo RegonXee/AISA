@@ -57,13 +57,22 @@ export default function ProfileDrawer({ refreshKey = 0 }: { refreshKey?: number 
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [trend, setTrend] = useState<TrendItem[]>([]);
+  const [status, setStatus] = useState('');
 
   useEffect(() => {
     async function load() {
-      const response = await fetch('/api/case-materials');
-      const data = await response.json();
-      setProfile(data.profile);
-      setTrend(data.trend || []);
+      try {
+        const response = await fetch('/api/case-materials');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '读取教师画像失败');
+        setProfile(data.profile);
+        setTrend(data.trend || []);
+        setStatus('');
+      } catch (error) {
+        setProfile(null);
+        setTrend([]);
+        setStatus(error instanceof Error ? error.message : '读取教师画像失败');
+      }
     }
     load();
   }, [refreshKey]);
@@ -74,6 +83,13 @@ export default function ProfileDrawer({ refreshKey = 0 }: { refreshKey?: number 
         <span className="font-semibold text-white">教师画像</span>
         <span className="text-sm text-gray-400">{open ? '收起' : '展开'}</span>
       </button>
+      {open && !profile && (
+        <div className="border-t border-dark-border p-4">
+          <p className="rounded-lg border border-dark-border bg-dark-bg p-3 text-xs text-gray-400">
+            {status || '请先在侧边栏输入用户名登录。'}
+          </p>
+        </div>
+      )}
       {open && profile && (
         <div className="space-y-4 border-t border-dark-border p-4">
           <MiniRadar profile={profile} />
@@ -101,4 +117,3 @@ export default function ProfileDrawer({ refreshKey = 0 }: { refreshKey?: number 
     </section>
   );
 }
-

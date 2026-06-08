@@ -19,9 +19,16 @@ export default function StepVerification({ refreshKey = 0 }: { refreshKey?: numb
   const [status, setStatus] = useState('');
 
   async function loadTasks() {
-    const response = await fetch('/api/improvement-tasks');
-    const data = await response.json();
-    setTasks(data.tasks || []);
+    try {
+      const response = await fetch('/api/improvement-tasks');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '读取改进任务失败');
+      setTasks(data.tasks || []);
+      setStatus('');
+    } catch (error) {
+      setTasks([]);
+      setStatus(error instanceof Error ? error.message : '读取改进任务失败');
+    }
   }
 
   useEffect(() => {
@@ -70,7 +77,7 @@ export default function StepVerification({ refreshKey = 0 }: { refreshKey?: numb
       <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="证据名称" className="w-full rounded-lg border border-dark-border bg-dark-bg px-3 py-2 text-sm text-gray-100 placeholder-gray-500" />
       <input type="number" value={metricValue} onChange={(event) => setMetricValue(event.target.value)} placeholder="指标值" className="w-full rounded-lg border border-dark-border bg-dark-bg px-3 py-2 text-sm text-gray-100 placeholder-gray-500" />
       <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="教师自评：是否达成目标？原因是什么？" className="h-24 w-full resize-none rounded-lg border border-dark-border bg-dark-bg px-3 py-2 text-sm text-gray-100 placeholder-gray-500" />
-      <button onClick={addEvidence} className="w-full rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90">
+      <button onClick={addEvidence} disabled={!taskId || !label.trim() || !metricValue.trim()} className="w-full rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:bg-gray-600">
         保存再证据
       </button>
       {bars.length > 0 && (

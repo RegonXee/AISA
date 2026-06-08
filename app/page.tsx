@@ -25,7 +25,7 @@ export default function HomePage() {
         <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">AISA</h1>
         <p className="text-xl text-gray-300 mb-2">Your AI Smart Assistant</p>
         <p className="text-gray-400 max-w-3xl">
-          面向初中英语教学的 AI 助手。三大主功能负责生成教学材料，进入任一功能页后，右侧 AISA 侧边栏会承接人机协同决策、改进闭环、教师画像和案例材料导出。
+          面向初中英语教学的 AI 助手。首页保留教学设计、作文评价、试卷讲评三大主功能；进入功能页后，右侧 AISA 侧边栏辅助记录教师决策、实施改进与验证成效。
         </p>
       </section>
 
@@ -45,4 +45,3 @@ export default function HomePage() {
     </div>
   );
 }
-

@@ -119,7 +119,7 @@ export default function LessonDesignPage() {
     <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-white mb-2">教学设计</h1>
-        <p className="text-gray-400">主工作区负责生成 AI 内容，右侧 AISA 侧边栏负责协同决策、改进闭环和材料导出。</p>
+        <p className="text-gray-400">主工作区负责生成 AI 内容，右侧 AISA 侧边栏负责协同决策、实施改进和验证成效。</p>
       </div>
 
       <div className="flex flex-col items-stretch gap-6 lg:flex-row lg:items-start">

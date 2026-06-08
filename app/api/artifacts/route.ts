@@ -1,18 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createArtifact, readStore, summarizeMarkdown, type ArtifactKind } from '@/lib/evidence-store';
+import { createArtifact, filterStoreByUser, readStore, summarizeMarkdown, type ArtifactKind } from '@/lib/evidence-store';
+import { requireUsername } from '@/lib/user-session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const VALID_KINDS: ArtifactKind[] = ['lesson-design', 'essay-eval', 'exam-review'];
 
-export async function GET() {
-  const store = await readStore();
-  return NextResponse.json({ artifacts: store.artifacts });
+export async function GET(request: NextRequest) {
+  try {
+    const ownerUsername = requireUsername(request);
+    const store = filterStoreByUser(await readStore(), ownerUsername);
+    return NextResponse.json({ artifacts: store.artifacts });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : '读取成果失败' }, { status: 401 });
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    const ownerUsername = requireUsername(request);
     const body = await request.json();
     const kind = body.kind as ArtifactKind;
     const title = String(body.title || '').trim();
@@ -27,6 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     const artifact = await createArtifact({
+      ownerUsername,
       kind,
       title,
       content,
@@ -37,7 +45,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '保存成果失败' },
-      { status: 500 }
+      { status: error instanceof Error && error.message.includes('登录') ? 401 : 500 }
     );
   }
 }

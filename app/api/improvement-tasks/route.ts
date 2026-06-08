@@ -1,16 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { addEvidencePoint, createImprovementTask, readStore, updateTaskStatus, type ArtifactKind, type TaskStatus } from '@/lib/evidence-store';
+import { addEvidencePoint, createImprovementTask, filterStoreByUser, readStore, updateTaskStatus, type ArtifactKind, type TaskStatus } from '@/lib/evidence-store';
+import { requireUsername } from '@/lib/user-session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
-  const store = await readStore();
-  return NextResponse.json({ tasks: store.improvementTasks, artifacts: store.artifacts });
+export async function GET(request: NextRequest) {
+  try {
+    const ownerUsername = requireUsername(request);
+    const store = filterStoreByUser(await readStore(), ownerUsername);
+    return NextResponse.json({ tasks: store.improvementTasks, artifacts: store.artifacts });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : '读取改进任务失败' }, { status: 401 });
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    const ownerUsername = requireUsername(request);
     const body = await request.json();
     const problem = String(body.problem || '').trim();
     const actionPlan = String(body.actionPlan || '').trim();
@@ -23,6 +30,7 @@ export async function POST(request: NextRequest) {
     }
 
     const task = await createImprovementTask({
+      ownerUsername,
       sourceArtifactId: body.sourceArtifactId ? String(body.sourceArtifactId) : undefined,
       sourceArtifactKind: body.sourceArtifactKind as ArtifactKind | undefined,
       problem,
@@ -36,13 +44,14 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '创建改进任务失败' },
-      { status: 500 }
+      { status: error instanceof Error && error.message.includes('登录') ? 401 : 500 }
     );
   }
 }
 
 export async function PATCH(request: NextRequest) {
   try {
+    const ownerUsername = requireUsername(request);
     const body = await request.json();
     const taskId = String(body.taskId || '').trim();
     const action = String(body.action || '').trim();
@@ -57,7 +66,7 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: '请完整填写证据名称、指标和数值' }, { status: 400 });
       }
 
-      const task = await addEvidencePoint(taskId, {
+      const task = await addEvidencePoint(taskId, ownerUsername, {
         label: String(body.label),
         metricName: String(body.metricName),
         metricValue,
@@ -71,7 +80,7 @@ export async function PATCH(request: NextRequest) {
       if (!['planned', 'in-progress', 'completed'].includes(status)) {
         return NextResponse.json({ error: '无效的任务状态' }, { status: 400 });
       }
-      const task = await updateTaskStatus(taskId, status, Boolean(body.achieved));
+      const task = await updateTaskStatus(taskId, ownerUsername, status, Boolean(body.achieved));
       return NextResponse.json({ task });
     }
 
@@ -79,7 +88,7 @@ export async function PATCH(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '更新改进任务失败' },
-      { status: 500 }
+      { status: error instanceof Error && error.message.includes('登录') ? 401 : 500 }
     );
   }
 }
