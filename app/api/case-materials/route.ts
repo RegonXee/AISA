@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildCaseReport, buildMonthlyTrend, buildTeacherIssueTimeline, calculateTeacherProfile } from '@/lib/analytics';
-import { filterStoreByUser, readStore } from '@/lib/evidence-store';
+import { buildCaseReport, buildMonthlyTrend, buildTeacherIssueTimeline, calculateOverallEvaluation, calculateTeacherProfile } from '@/lib/analytics';
+import { clearStoreByUser, filterStoreByUser, readStore } from '@/lib/evidence-store';
 import { requireUsername } from '@/lib/user-session';
 
 export const runtime = 'nodejs';
@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     const ownerUsername = requireUsername(request);
     const store = filterStoreByUser(await readStore(), ownerUsername);
     const profile = calculateTeacherProfile(store);
+    const overall = calculateOverallEvaluation(store);
     const trend = buildMonthlyTrend(store);
     const issueTimeline = buildTeacherIssueTimeline(store);
     const report = buildCaseReport(store);
@@ -31,8 +32,18 @@ export async function GET(request: NextRequest) {
 
 1-2分钟成效：展示教师画像雷达图、成长趋势、闭环任务达成情况，并说明 AI 生成内容已由教师审核标注。`;
 
-    return NextResponse.json({ profile, trend, issueTimeline, report, infoTable, videoScript });
+    return NextResponse.json({ profile, overall, trend, issueTimeline, report, infoTable, videoScript });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '生成材料失败' }, { status: 401 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const ownerUsername = requireUsername(request);
+    const removed = await clearStoreByUser(ownerUsername);
+    return NextResponse.json({ ok: true, removed });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : '清除当前用户数据失败' }, { status: 401 });
   }
 }

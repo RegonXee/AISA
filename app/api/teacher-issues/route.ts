@@ -28,6 +28,34 @@ function parseScore(markdown: string) {
   return 70;
 }
 
+function parseJsonBlock(markdown: string) {
+  const titledMatch = markdown.match(/画像评分JSON[\s\S]*?```json\s*([\s\S]*?)```/);
+  const plainMatch = markdown.match(/```json\s*([\s\S]*?)```/);
+  const rawJson = titledMatch?.[1] || plainMatch?.[1];
+  if (!rawJson) return {};
+
+  try {
+    return JSON.parse(rawJson) as {
+      profileScores?: Record<string, number>;
+      overallScores?: Record<string, number>;
+    };
+  } catch {
+    return {};
+  }
+}
+
+function normalizeScores<T extends Record<string, number>>(value: unknown, keys: Array<keyof T>) {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const output = {} as T;
+  for (const key of keys) {
+    const score = Number(record[String(key)]);
+    if (!Number.isFinite(score)) return undefined;
+    output[key] = clampScore(score) as T[keyof T];
+  }
+  return output;
+}
+
 function extractSection(markdown: string, sectionName: string) {
   const escaped = sectionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = markdown.match(new RegExp(`##+\\s*[^\\n]*${escaped}[^\\n]*\\n([\\s\\S]*?)(?=\\n##+\\s|$)`));
@@ -234,6 +262,35 @@ ${previousMarkdown || '暂无上一次记录，本次作为基线。'}`;
     }
 
     const scoreBefore = parseScore(markdown);
+    const scoreJson = parseJsonBlock(markdown);
+    const aiProfileScores = normalizeScores<{
+      classroomGuidance: number;
+      questionQuality: number;
+      studentLanguageOutput: number;
+      activityPacing: number;
+      feedbackAndCorrection: number;
+      improvementContinuity: number;
+    }>(scoreJson.profileScores, [
+      'classroomGuidance',
+      'questionQuality',
+      'studentLanguageOutput',
+      'activityPacing',
+      'feedbackAndCorrection',
+      'improvementContinuity',
+    ]);
+    const aiOverallScores = normalizeScores<{
+      studentLearningOutput: number;
+      interactionQuality: number;
+      feedbackRegulation: number;
+      improvementTrend: number;
+      professionalAutonomy: number;
+    }>(scoreJson.overallScores, [
+      'studentLearningOutput',
+      'interactionQuality',
+      'feedbackRegulation',
+      'improvementTrend',
+      'professionalAutonomy',
+    ]);
     const previousScore = previousRecord?.scoreBefore;
     const improved = previousScore === undefined ? undefined : scoreBefore > previousScore;
     const problemsMarkdown = extractSection(markdown, '教师存在的问题') || markdown.slice(0, 1200);
@@ -257,6 +314,8 @@ ${previousMarkdown || '暂无上一次记录，本次作为基线。'}`;
       problemsMarkdown,
       improvementMarkdown,
       markdown,
+      aiProfileScores,
+      aiOverallScores,
       scoreBefore,
       scoreAfter: previousScore === undefined ? undefined : scoreBefore,
       improved,

@@ -1,10 +1,23 @@
 import type { CollaborationLog, ImprovementTask, StoreData, TeacherIssueRecord } from './evidence-store';
 
 export interface TeacherProfileMetrics {
-  instructionalDesign: number;
-  dataAnalysis: number;
-  reflectionDepth: number;
-  improvementExecution: number;
+  classroomGuidance: number;
+  questionQuality: number;
+  studentLanguageOutput: number;
+  activityPacing: number;
+  feedbackAndCorrection: number;
+  improvementContinuity: number;
+}
+
+export interface OverallEvaluation {
+  score: number;
+  level: string;
+  dimensions: Array<{
+    key: string;
+    label: string;
+    score: number;
+    description: string;
+  }>;
 }
 
 function clampScore(value: number) {
@@ -14,6 +27,23 @@ function clampScore(value: number) {
 function average(values: number[]) {
   if (values.length === 0) return 0;
   return values.reduce((sum, item) => sum + item, 0) / values.length;
+}
+
+type ProfileScoreKey = keyof NonNullable<TeacherIssueRecord['aiProfileScores']>;
+type OverallScoreKey = keyof NonNullable<TeacherIssueRecord['aiOverallScores']>;
+
+function averageAiProfileScore(records: TeacherIssueRecord[], key: ProfileScoreKey) {
+  const values = records
+    .map((record) => record.aiProfileScores?.[key])
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  return values.length > 0 ? clampScore(average(values)) : undefined;
+}
+
+function averageAiOverallScore(records: TeacherIssueRecord[], key: OverallScoreKey) {
+  const values = records
+    .map((record) => record.aiOverallScores?.[key])
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  return values.length > 0 ? clampScore(average(values)) : undefined;
 }
 
 function reflectionScore(logs: CollaborationLog[]) {
@@ -45,19 +75,96 @@ function issueRecordScore(records: TeacherIssueRecord[]) {
   }));
 }
 
+function keywordDimensionScore(records: TeacherIssueRecord[], keywords: string[]) {
+  if (records.length === 0) return 0;
+  return average(records.map((record) => {
+    const text = `${record.problemsMarkdown}\n${record.improvementMarkdown}\n${record.markdown}`;
+    const keywordHits = keywords.filter((word) => text.includes(word)).length;
+    const evidenceDepth = Math.min(text.length / 2600, 1) * 25;
+    return clampScore(record.scoreBefore * 0.55 + keywordHits * 8 + evidenceDepth);
+  }));
+}
+
+function professionalAutonomyScore(logs: CollaborationLog[]) {
+  if (logs.length === 0) return 0;
+  return average(logs.map((log) => {
+    const text = `${log.modifiedParts}\n${log.reflection}\n${log.teacherDecision}`;
+    const autonomyWords = ['修改', '调整', '取舍', '原因', '学生', '实际', '课堂', '生成', '补充'];
+    const hitScore = autonomyWords.filter((word) => text.includes(word)).length * 9;
+    const lengthScore = Math.min(text.length / 220, 1) * 35;
+    return clampScore(hitScore + lengthScore);
+  }));
+}
+
 export function calculateTeacherProfile(data: StoreData): TeacherProfileMetrics {
-  const lessonLogs = data.collaborationLogs.filter((log) => log.artifactKind === 'lesson-design');
-  const dataLogs = data.collaborationLogs.filter((log) => log.artifactKind !== 'lesson-design');
-  const modifiedLogs = data.collaborationLogs.filter((log) => log.modifiedParts.trim().length > 0);
   const issueRecords = data.teacherIssueRecords;
   const verifiedRecords = issueRecords.filter((record) => record.improved !== undefined);
 
   return {
-    instructionalDesign: clampScore(lessonLogs.length * 18 + modifiedLogs.length * 8 + issueRecords.length * 6),
-    dataAnalysis: clampScore(dataLogs.length * 16 + data.improvementTasks.length * 12 + issueRecords.length * 18),
-    reflectionDepth: clampScore(reflectionScore(data.collaborationLogs) + issueRecordScore(issueRecords) * 0.35),
-    improvementExecution: clampScore(executionScore(data.improvementTasks) + verifiedRecords.length * 14),
+    classroomGuidance: averageAiProfileScore(issueRecords, 'classroomGuidance')
+      ?? keywordDimensionScore(issueRecords, ['师生互动', '生生互动', '学生参与', '讲授', '小组', '讨论', '互动']),
+    questionQuality: averageAiProfileScore(issueRecords, 'questionQuality')
+      ?? keywordDimensionScore(issueRecords, ['提问', '追问', '问题设计', '开放', '推理', '迁移', '思考']),
+    studentLanguageOutput: averageAiProfileScore(issueRecords, 'studentLanguageOutput')
+      ?? keywordDimensionScore(issueRecords, ['学生输出', '语言输出', '口语', '表达', '展示', '回答', '产出', '英语']),
+    activityPacing: averageAiProfileScore(issueRecords, 'activityPacing')
+      ?? keywordDimensionScore(issueRecords, ['活动', '节奏', '时间', '任务', '导入', '听前', '听中', '听后', '转换']),
+    feedbackAndCorrection: averageAiProfileScore(issueRecords, 'feedbackAndCorrection')
+      ?? keywordDimensionScore(issueRecords, ['反馈', '纠错', '评价', '追问', '支架', '点拨', '回应']),
+    improvementContinuity: averageAiProfileScore(issueRecords, 'improvementContinuity')
+      ?? clampScore(
+      issueRecordScore(issueRecords) * 0.45 +
+      executionScore(data.improvementTasks) * 0.35 +
+      verifiedRecords.length * 10 +
+      reflectionScore(data.collaborationLogs) * 0.2
+    ),
   };
+}
+
+export function calculateOverallEvaluation(data: StoreData): OverallEvaluation {
+  const profile = calculateTeacherProfile(data);
+  const autonomy = professionalAutonomyScore(data.collaborationLogs);
+  const issueRecords = data.teacherIssueRecords;
+  const dimensions = [
+    {
+      key: 'studentLanguageOutput',
+      label: '学生学习产出',
+      score: averageAiOverallScore(issueRecords, 'studentLearningOutput')
+        ?? profile.studentLanguageOutput,
+      description: '看学生是否形成可观察的语言表达、课堂展示、练习结果或学习产物。',
+    },
+    {
+      key: 'interactionQuality',
+      label: '互动质量',
+      score: averageAiOverallScore(issueRecords, 'interactionQuality')
+        ?? profile.classroomGuidance,
+      description: '看课堂互动是否促进真实思考与表达，而不是只统计问答次数。',
+    },
+    {
+      key: 'feedbackRegulation',
+      label: '反馈调控能力',
+      score: averageAiOverallScore(issueRecords, 'feedbackRegulation')
+        ?? profile.feedbackAndCorrection,
+      description: '看教师能否基于学生回应及时追问、纠错、搭支架或调整节奏。',
+    },
+    {
+      key: 'improvementTrend',
+      label: '持续改进趋势',
+      score: averageAiOverallScore(issueRecords, 'improvementTrend')
+        ?? profile.improvementContinuity,
+      description: '看上一轮问题是否被继续追踪，改进动作是否留下新证据。',
+    },
+    {
+      key: 'professionalAutonomy',
+      label: '专业自主调整',
+      score: averageAiOverallScore(issueRecords, 'professionalAutonomy')
+        ?? autonomy,
+      description: '看教师是否能结合学生实际有依据地调整 AI 建议或原教案。',
+    },
+  ];
+  const score = clampScore(average(dimensions.map((item) => item.score)));
+  const level = score >= 85 ? '成熟稳定' : score >= 70 ? '发展良好' : score >= 55 ? '正在形成' : '需要积累证据';
+  return { score, level, dimensions };
 }
 
 export function buildMonthlyTrend(data: StoreData) {
@@ -88,11 +195,23 @@ export function buildMonthlyTrend(data: StoreData) {
 
   return Array.from(buckets.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, value]) => ({
-      month,
-      score: clampScore(value.logs * 12 + value.completedTasks * 30 + value.evidence * 10 + value.issueRecords * 20 + value.verified * 18),
-      ...value,
-    }));
+    .map(([month, value]) => {
+      const monthData: StoreData = {
+        artifacts: data.artifacts.filter((item) => item.createdAt.slice(0, 7) <= month),
+        collaborationLogs: data.collaborationLogs.filter((item) => item.createdAt.slice(0, 7) <= month),
+        improvementTasks: data.improvementTasks.filter((item) => item.createdAt.slice(0, 7) <= month),
+        teacherIssueRecords: data.teacherIssueRecords.filter((item) => item.createdAt.slice(0, 7) <= month),
+      };
+      const profile = calculateTeacherProfile(monthData);
+      const overall = calculateOverallEvaluation(monthData);
+      return {
+        month,
+        score: overall.score || clampScore(value.logs * 12 + value.completedTasks * 30 + value.evidence * 10 + value.issueRecords * 20 + value.verified * 18),
+        profile,
+        overall,
+        ...value,
+      };
+    });
 }
 
 export function buildTeacherIssueTimeline(data: StoreData) {
@@ -113,6 +232,7 @@ export function buildTeacherIssueTimeline(data: StoreData) {
 
 export function buildCaseReport(data: StoreData) {
   const metrics = calculateTeacherProfile(data);
+  const overall = calculateOverallEvaluation(data);
   const latestLogs = data.collaborationLogs.slice(0, 5);
   const latestTasks = data.improvementTasks.slice(0, 5);
   const latestIssues = data.teacherIssueRecords.slice(0, 5);
@@ -145,10 +265,13 @@ export function buildCaseReport(data: StoreData) {
 ${logLines}
 
 ## 三、教师发展画像
-- 教学设计能力：${metrics.instructionalDesign}
-- 数据分析能力：${metrics.dataAnalysis}
-- 反思深度：${metrics.reflectionDepth}
-- 改进执行力：${metrics.improvementExecution}
+- 总评：${overall.score}（${overall.level}）
+- 课堂主导方式：${metrics.classroomGuidance}
+- 问题设计质量：${metrics.questionQuality}
+- 学生语言产出：${metrics.studentLanguageOutput}
+- 活动组织与节奏：${metrics.activityPacing}
+- 反馈与纠错能力：${metrics.feedbackAndCorrection}
+- 持续改进趋势：${metrics.improvementContinuity}
 
 ## 四、成效评估
 ${taskLines}

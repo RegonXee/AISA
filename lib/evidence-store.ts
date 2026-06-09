@@ -67,6 +67,21 @@ export interface TeacherIssueRecord {
   problemsMarkdown: string;
   improvementMarkdown: string;
   markdown: string;
+  aiProfileScores?: {
+    classroomGuidance: number;
+    questionQuality: number;
+    studentLanguageOutput: number;
+    activityPacing: number;
+    feedbackAndCorrection: number;
+    improvementContinuity: number;
+  };
+  aiOverallScores?: {
+    studentLearningOutput: number;
+    interactionQuality: number;
+    feedbackRegulation: number;
+    improvementTrend: number;
+    professionalAutonomy: number;
+  };
   scoreBefore: number;
   scoreAfter?: number;
   improved?: boolean;
@@ -129,6 +144,23 @@ export function filterStoreByUser(data: StoreData, ownerUsername: string): Store
     improvementTasks: data.improvementTasks.filter((item) => item.ownerUsername === ownerUsername),
     teacherIssueRecords: data.teacherIssueRecords.filter((item) => item.ownerUsername === ownerUsername),
   };
+}
+
+export async function clearStoreByUser(ownerUsername: string) {
+  const store = await readStore();
+  const removed = {
+    artifacts: store.artifacts.filter((item) => item.ownerUsername === ownerUsername).length,
+    collaborationLogs: store.collaborationLogs.filter((item) => item.ownerUsername === ownerUsername).length,
+    improvementTasks: store.improvementTasks.filter((item) => item.ownerUsername === ownerUsername).length,
+    teacherIssueRecords: store.teacherIssueRecords.filter((item) => item.ownerUsername === ownerUsername).length,
+  };
+
+  store.artifacts = store.artifacts.filter((item) => item.ownerUsername !== ownerUsername);
+  store.collaborationLogs = store.collaborationLogs.filter((item) => item.ownerUsername !== ownerUsername);
+  store.improvementTasks = store.improvementTasks.filter((item) => item.ownerUsername !== ownerUsername);
+  store.teacherIssueRecords = store.teacherIssueRecords.filter((item) => item.ownerUsername !== ownerUsername);
+  await writeStore(store);
+  return removed;
 }
 
 export async function createArtifact(input: Omit<Artifact, 'id' | 'createdAt'>) {
