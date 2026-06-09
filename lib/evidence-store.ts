@@ -54,10 +54,32 @@ export interface ImprovementTask {
   updatedAt: string;
 }
 
+export interface TeacherIssueRecord {
+  id: string;
+  ownerUsername: string;
+  teacherName: string;
+  sourceArtifactId?: string;
+  sourceArtifactTitle?: string;
+  evidenceTitle: string;
+  lessonTranscript: string;
+  aviaDataSummary: string;
+  ignoredDataNotes: string[];
+  problemsMarkdown: string;
+  improvementMarkdown: string;
+  markdown: string;
+  scoreBefore: number;
+  scoreAfter?: number;
+  improved?: boolean;
+  nextAction: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StoreData {
   artifacts: Artifact[];
   collaborationLogs: CollaborationLog[];
   improvementTasks: ImprovementTask[];
+  teacherIssueRecords: TeacherIssueRecord[];
 }
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -67,6 +89,7 @@ const EMPTY_STORE: StoreData = {
   artifacts: [],
   collaborationLogs: [],
   improvementTasks: [],
+  teacherIssueRecords: [],
 };
 
 function makeId(prefix: string) {
@@ -90,6 +113,7 @@ export async function readStore(): Promise<StoreData> {
     artifacts: parsed.artifacts ?? [],
     collaborationLogs: parsed.collaborationLogs ?? [],
     improvementTasks: parsed.improvementTasks ?? [],
+    teacherIssueRecords: parsed.teacherIssueRecords ?? [],
   };
 }
 
@@ -103,6 +127,7 @@ export function filterStoreByUser(data: StoreData, ownerUsername: string): Store
     artifacts: data.artifacts.filter((item) => item.ownerUsername === ownerUsername),
     collaborationLogs: data.collaborationLogs.filter((item) => item.ownerUsername === ownerUsername),
     improvementTasks: data.improvementTasks.filter((item) => item.ownerUsername === ownerUsername),
+    teacherIssueRecords: data.teacherIssueRecords.filter((item) => item.ownerUsername === ownerUsername),
   };
 }
 
@@ -177,6 +202,21 @@ export async function addEvidencePoint(
   return task;
 }
 
+export async function createTeacherIssueRecord(
+  input: Omit<TeacherIssueRecord, 'id' | 'createdAt' | 'updatedAt'>
+) {
+  const store = await readStore();
+  const record: TeacherIssueRecord = {
+    ...input,
+    id: makeId('teacher_issue'),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  store.teacherIssueRecords.unshift(record);
+  await writeStore(store);
+  return record;
+}
+
 export async function updateTaskStatus(
   taskId: string,
   ownerUsername: string,
@@ -212,4 +252,3 @@ export function formatDate(iso: string) {
     minute: '2-digit',
   }).format(new Date(iso));
 }
-

@@ -1,6 +1,6 @@
 'use client';
 
-const STEPS = ['AI分析', '我的决策', '实施改进', '验证成效'];
+const STEPS = ['课例输入', '奥威亚诊断', '教师画像'];
 
 export default function StepIndicator({
   currentStep,
@@ -10,7 +10,7 @@ export default function StepIndicator({
   onChange: (step: number) => void;
 }) {
   return (
-    <div className="grid grid-cols-4 gap-1">
+    <div className="grid grid-cols-3 gap-1">
       {STEPS.map((step, index) => {
         const active = currentStep === index;
         const done = currentStep > index;
@@ -34,4 +34,3 @@ export default function StepIndicator({
     </div>
   );
 }
-

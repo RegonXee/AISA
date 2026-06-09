@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ocrImages } from '@/lib/baidu-ocr';
 import { streamChat, type Message } from '@/lib/deepseek';
+import { extractFileText } from '@/lib/document-extract';
 import { LESSON_DESIGN_PROMPT } from '@/lib/prompts';
 
 export const runtime = 'nodejs';
@@ -12,6 +13,8 @@ export async function POST(request: NextRequest) {
     const text = String(formData.get('text') || '');
     const grade = String(formData.get('grade') || '八年级');
     const period = String(formData.get('period') || '2课时');
+    const demands = String(formData.get('demands') || '');
+    const demandFile = formData.get('demandFile') as File | null;
     const images = formData.getAll('images') as File[];
 
     if (!text.trim() && images.length === 0) {
@@ -38,10 +41,22 @@ export async function POST(request: NextRequest) {
     }
 
     const combinedText = [text.trim(), ocrText.trim()].filter(Boolean).join('\n\n');
+    const demandDocument = await extractFileText(demandFile);
+    const demandContent = [
+      demands.trim(),
+      demandDocument?.text ? `来自诉求文档《${demandDocument.fileName}》：\n${demandDocument.text}` : '',
+      ...(demandDocument?.warnings || []),
+    ].filter(Boolean).join('\n\n');
+
     const userContent = `请为${grade}学生设计一份${period}的读写课教学方案。
 
 ## 课文内容
-${combinedText}`;
+${combinedText}
+
+## 教师诉求、问题与改进要求
+${demandContent || '教师未提供额外诉求，请主要依据课文内容和学段要求生成。'}
+
+请将教师诉求与课文本身结合，不要机械附加；若诉求与课文内容冲突，请优先说明取舍并给出可执行调整。`;
 
     const messages: Message[] = [
       { role: 'system', content: LESSON_DESIGN_PROMPT },
@@ -72,4 +87,3 @@ ${combinedText}`;
     );
   }
 }
-

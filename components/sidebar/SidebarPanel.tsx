@@ -4,11 +4,8 @@ import { useEffect, useState } from 'react';
 import ChatWindow from './ChatWindow';
 import ProfileDrawer from './ProfileDrawer';
 import RegisterForm from './RegisterForm';
-import StepAIAnalysis from './StepAIAnalysis';
-import StepDecision from './StepDecision';
-import StepImprovement from './StepImprovement';
+import StepAviaDiagnosis from './StepAviaDiagnosis';
 import StepIndicator from './StepIndicator';
-import StepVerification from './StepVerification';
 
 export interface SidebarArtifact {
   id: string;
@@ -24,7 +21,7 @@ export default function SidebarPanel({
   artifact?: SidebarArtifact | null;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const [pageAiOutput, setPageAiOutput] = useState('');
   const [pageArtifact, setPageArtifact] = useState<SidebarArtifact | null>(null);
@@ -75,7 +72,7 @@ export default function SidebarPanel({
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-white">AISA 协同侧边栏</h2>
-          <p className="text-xs text-gray-500">AI分析 → 教师决策 → 实施改进 → 验证成效</p>
+          <p className="text-xs text-gray-500">课例与诉求 → 奥威亚诊断改进 → 教师画像时间轴</p>
         </div>
         <button onClick={() => setCollapsed(true)} className="rounded-lg border border-dark-border px-2 py-1 text-xs text-gray-400">
           折叠
@@ -86,15 +83,23 @@ export default function SidebarPanel({
         <StepIndicator currentStep={currentStep} onChange={setCurrentStep} />
 
         <div className="rounded-xl border border-dark-border bg-dark-card p-4">
-          {currentStep === 0 && <StepAIAnalysis aiOutput={aiOutput} />}
-          {currentStep === 1 && <StepDecision artifact={artifact} onSaved={refresh} />}
-          {currentStep === 2 && <StepImprovement artifact={artifact} onSaved={refresh} />}
-          {currentStep === 3 && <StepVerification refreshKey={refreshKey} />}
+          {currentStep === 0 && (
+            <section className="space-y-3">
+              <div>
+                <h3 className="text-base font-semibold text-white">步骤1：课例输入与教师诉求</h3>
+                <p className="mt-1 text-xs text-gray-500">主工作区录入课文、上传课文图片和诉求文档，生成结合教师诉求的教案。</p>
+              </div>
+              <div className="rounded-lg border border-dark-border bg-dark-bg p-3 text-xs text-gray-400">
+                当前成果：{artifact ? <span className="text-primary">{artifact.title}</span> : '生成并保存教案后，会自动关联到后续奥威亚诊断。'}
+              </div>
+            </section>
+          )}
+          {currentStep === 1 && <StepAviaDiagnosis aiOutput={aiOutput} artifact={artifact} onSaved={refresh} />}
+          {currentStep === 2 && <ProfileDrawer refreshKey={refreshKey} defaultOpen />}
         </div>
 
         <ChatWindow aiOutput={aiOutput} step={currentStep} />
         <RegisterForm />
-        <ProfileDrawer refreshKey={refreshKey} />
       </div>
     </aside>
   );

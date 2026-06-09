@@ -12,6 +12,18 @@ interface Profile {
 interface TrendItem {
   month: string;
   score: number;
+  issueRecords?: number;
+  verified?: number;
+}
+
+interface IssueTimelineItem {
+  id: string;
+  date: string;
+  evidenceTitle: string;
+  scoreBefore: number;
+  scoreAfter?: number;
+  improved?: boolean;
+  summary: string;
 }
 
 const AXES = [
@@ -53,10 +65,11 @@ function MiniRadar({ profile }: { profile: Profile }) {
   );
 }
 
-export default function ProfileDrawer({ refreshKey = 0 }: { refreshKey?: number }) {
-  const [open, setOpen] = useState(false);
+export default function ProfileDrawer({ refreshKey = 0, defaultOpen = false }: { refreshKey?: number; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [trend, setTrend] = useState<TrendItem[]>([]);
+  const [timeline, setTimeline] = useState<IssueTimelineItem[]>([]);
   const [status, setStatus] = useState('');
 
   useEffect(() => {
@@ -67,10 +80,12 @@ export default function ProfileDrawer({ refreshKey = 0 }: { refreshKey?: number 
         if (!response.ok) throw new Error(data.error || '读取教师画像失败');
         setProfile(data.profile);
         setTrend(data.trend || []);
+        setTimeline(data.issueTimeline || []);
         setStatus('');
       } catch (error) {
         setProfile(null);
         setTrend([]);
+        setTimeline([]);
         setStatus(error instanceof Error ? error.message : '读取教师画像失败');
       }
     }
@@ -109,6 +124,18 @@ export default function ProfileDrawer({ refreshKey = 0 }: { refreshKey?: number 
                 <div className="h-2 flex-1 overflow-hidden rounded-full bg-dark-bg">
                   <div className="h-full bg-secondary" style={{ width: `${Math.min(100, item.score)}%` }} />
                 </div>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2">
+            <div className="text-xs text-gray-500">问题与改进时间轴</div>
+            {timeline.length === 0 ? <p className="text-xs text-gray-500">暂无奥威亚诊断记录</p> : timeline.slice(0, 4).map((item) => (
+              <div key={item.id} className="rounded-lg border border-dark-border bg-dark-bg p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-xs text-gray-300">{item.evidenceTitle}</span>
+                  <span className="shrink-0 text-xs text-primary">{item.scoreBefore}</span>
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs text-gray-500">{item.summary || '暂无摘要'}</p>
               </div>
             ))}
           </div>

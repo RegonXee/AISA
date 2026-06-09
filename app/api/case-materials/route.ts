@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildCaseReport, buildMonthlyTrend, calculateTeacherProfile } from '@/lib/analytics';
+import { buildCaseReport, buildMonthlyTrend, buildTeacherIssueTimeline, calculateTeacherProfile } from '@/lib/analytics';
 import { filterStoreByUser, readStore } from '@/lib/evidence-store';
 import { requireUsername } from '@/lib/user-session';
 
@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const store = filterStoreByUser(await readStore(), ownerUsername);
     const profile = calculateTeacherProfile(store);
     const trend = buildMonthlyTrend(store);
+    const issueTimeline = buildTeacherIssueTimeline(store);
     const report = buildCaseReport(store);
 
     const infoTable = {
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
       evidenceCount: store.artifacts.length,
       reflectionCount: store.collaborationLogs.length,
       improvementTaskCount: store.improvementTasks.length,
+      teacherIssueRecordCount: store.teacherIssueRecords.length,
     };
 
     const videoScript = `1-2分钟概述：介绍案例背景、AISA 工具介入的三个场景，以及教师保留最终决策权的人机协同原则。
@@ -29,9 +31,8 @@ export async function GET(request: NextRequest) {
 
 1-2分钟成效：展示教师画像雷达图、成长趋势、闭环任务达成情况，并说明 AI 生成内容已由教师审核标注。`;
 
-    return NextResponse.json({ profile, trend, report, infoTable, videoScript });
+    return NextResponse.json({ profile, trend, issueTimeline, report, infoTable, videoScript });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '生成材料失败' }, { status: 401 });
   }
 }
-

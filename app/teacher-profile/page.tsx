@@ -15,6 +15,20 @@ interface TrendItem {
   logs: number;
   completedTasks: number;
   evidence: number;
+  issueRecords?: number;
+  verified?: number;
+}
+
+interface IssueTimelineItem {
+  id: string;
+  date: string;
+  teacherName: string;
+  evidenceTitle: string;
+  scoreBefore: number;
+  scoreAfter?: number;
+  improved?: boolean;
+  summary: string;
+  nextAction: string;
 }
 
 const AXES = [
@@ -74,6 +88,7 @@ function RadarChart({ profile }: { profile: Profile }) {
 export default function TeacherProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [trend, setTrend] = useState<TrendItem[]>([]);
+  const [issueTimeline, setIssueTimeline] = useState<IssueTimelineItem[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -81,6 +96,7 @@ export default function TeacherProfilePage() {
       const data = await response.json();
       setProfile(data.profile);
       setTrend(data.trend || []);
+      setIssueTimeline(data.issueTimeline || []);
     }
     load();
   }, []);
@@ -133,9 +149,41 @@ export default function TeacherProfilePage() {
                       <div className="h-full bg-secondary" style={{ width: `${(item.score / maxTrend) * 100}%` }} />
                     </div>
                     <div className="text-sm text-gray-500">
-                      记录{item.logs} · 闭环{item.completedTasks} · 证据{item.evidence}
+                      记录{item.logs} · 诊断{item.issueRecords || 0} · 再评{item.verified || 0} · 证据{item.evidence}
                     </div>
                   </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="lg:col-span-2 bg-dark-card border border-dark-border rounded-xl p-6">
+            <h2 className="text-xl font-bold text-white mb-5">问题与改进时间轴</h2>
+            {issueTimeline.length === 0 ? (
+              <p className="text-gray-400">暂无奥威亚诊断记录。上传奥威亚数据和逐字稿后，会在这里形成每位教师的问题与改进轨迹。</p>
+            ) : (
+              <div className="space-y-4">
+                {issueTimeline.map((item) => (
+                  <article key={item.id} className="grid gap-4 rounded-lg border border-dark-border bg-dark-bg p-4 md:grid-cols-[160px_1fr_140px]">
+                    <div>
+                      <div className="text-sm text-gray-500">{new Date(item.date).toLocaleString('zh-CN')}</div>
+                      <div className="mt-2 text-white font-semibold">{item.teacherName}</div>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-white">{item.evidenceTitle}</h3>
+                      <p className="mt-2 text-sm leading-relaxed text-gray-400">{item.summary || '暂无问题摘要'}</p>
+                      <p className="mt-2 text-xs leading-relaxed text-gray-500">下一步：{item.nextAction}</p>
+                    </div>
+                    <div className="rounded-lg border border-dark-border bg-dark-card p-3 text-center">
+                      <div className="text-xs text-gray-500">诊断评分</div>
+                      <div className="mt-1 text-2xl font-bold text-primary">{item.scoreBefore}</div>
+                      {item.scoreAfter !== undefined && (
+                        <div className={item.improved ? 'mt-1 text-xs text-secondary' : 'mt-1 text-xs text-red-300'}>
+                          {item.improved ? '已改进' : '待继续'}
+                        </div>
+                      )}
+                    </div>
+                  </article>
                 ))}
               </div>
             )}
@@ -145,4 +193,3 @@ export default function TeacherProfilePage() {
     </div>
   );
 }
-

@@ -15,9 +15,12 @@ export default function LessonDesignPage() {
   const [artifact, setArtifact] = useState<SidebarArtifact | null>(null);
   const [images, setImages] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [demands, setDemands] = useState('');
+  const [demandFile, setDemandFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const demandFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
@@ -41,7 +44,7 @@ export default function LessonDesignPage() {
       body: JSON.stringify({
         kind: 'lesson-design',
         title: `${grade}读写课教学设计`,
-        inputSummary: `年级：${grade}；课时：${period}；文本长度：${text.length}；图片：${images.length}张`,
+        inputSummary: `年级：${grade}；课时：${period}；文本长度：${text.length}；图片：${images.length}张；诉求：${demands.length}字${demandFile ? `；诉求文档：${demandFile.name}` : ''}`,
         content,
       }),
     });
@@ -67,6 +70,8 @@ export default function LessonDesignPage() {
       formData.append('text', text);
       formData.append('grade', grade);
       formData.append('period', period);
+      formData.append('demands', demands);
+      if (demandFile) formData.append('demandFile', demandFile);
       images.forEach((image) => formData.append('images', image));
 
       const response = await fetch('/api/lesson-design', { method: 'POST', body: formData });
@@ -91,7 +96,7 @@ export default function LessonDesignPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [text, grade, period, images]);
+  }, [text, grade, period, images, demands, demandFile]);
 
   const downloadDoc = useCallback(async () => {
     try {
@@ -119,7 +124,7 @@ export default function LessonDesignPage() {
     <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-white mb-2">教学设计</h1>
-        <p className="text-gray-400">主工作区负责生成 AI 内容，右侧 AISA 侧边栏负责协同决策、实施改进和验证成效。</p>
+        <p className="text-gray-400">主工作区生成教案，右侧 AISA 侧边栏读取奥威亚数据与逐字稿，形成教师问题诊断、改进记录和画像时间轴。</p>
       </div>
 
       <div className="flex flex-col items-stretch gap-6 lg:flex-row lg:items-start">
@@ -127,7 +132,31 @@ export default function LessonDesignPage() {
           <div className="space-y-6">
             <div className="bg-dark-card rounded-xl p-6 border border-dark-border">
               <h2 className="text-lg font-semibold text-white mb-4">课文内容</h2>
-              <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="请粘贴课文内容..." className="w-full h-64 bg-dark-bg border border-dark-border rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary resize-none" />
+              <textarea data-lesson-input="true" value={text} onChange={(event) => setText(event.target.value)} placeholder="请粘贴课文内容..." className="w-full h-64 bg-dark-bg border border-dark-border rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary resize-none" />
+            </div>
+
+            <div className="bg-dark-card rounded-xl p-6 border border-dark-border">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-white">诉求</h2>
+                <p className="mt-1 text-sm text-gray-500">上传的问题与改进文档，或直接写下希望教案强化的重难点、活动形式和其他诉求。</p>
+              </div>
+              <input
+                ref={demandFileInputRef}
+                type="file"
+                accept=".doc,.docx,.txt,.md"
+                onChange={(event) => setDemandFile(event.target.files?.[0] || null)}
+                className="hidden"
+              />
+              <button onClick={() => demandFileInputRef.current?.click()} className="w-full py-3 border-2 border-dashed border-dark-border rounded-lg text-gray-400 hover:border-primary hover:text-primary transition-colors">
+                {demandFile ? `已选择：${demandFile.name}` : '上传诉求 DOC / DOCX'}
+              </button>
+              <textarea
+                data-demand-input="true"
+                value={demands}
+                onChange={(event) => setDemands(event.target.value)}
+                placeholder="例如：本课要突出听说课中的语言支架；学生互动偏少，希望增加 pair work；根据前次问题，强化重难点突破和课堂评价。"
+                className="mt-4 w-full h-32 bg-dark-bg border border-dark-border rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+              />
             </div>
 
             <div className="bg-dark-card rounded-xl p-6 border border-dark-border">
