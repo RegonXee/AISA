@@ -6,6 +6,25 @@ export interface ExtractedDocument {
   warnings: string[];
 }
 
+const MAX_EXTRACTED_FILE_CHARS = 30000;
+
+export function compactTextForModel(value: string, maxLength = MAX_EXTRACTED_FILE_CHARS) {
+  const cleaned = value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/[^\S\r\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (cleaned.length <= maxLength) return cleaned;
+  const headLength = Math.floor(maxLength * 0.7);
+  const tailLength = maxLength - headLength;
+  return `${cleaned.slice(0, headLength)}
+
+……中间内容过长，已省略 ${cleaned.length - maxLength} 字……
+
+${cleaned.slice(-tailLength)}`;
+}
+
 function decodeXmlText(value: string) {
   return value
     .replace(/&lt;/g, '<')
@@ -41,7 +60,12 @@ function extractPdfTextLoosely(buffer: Buffer) {
   const raw = buffer.toString('latin1');
   const literalStrings = Array.from(raw.matchAll(/\(([^()]{2,})\)/g))
     .map((match) => match[1])
-    .filter((value) => /[\w\u00a0-\uffff]/.test(value));
+    .filter((value) => /[\w\u00a0-\uffff]/.test(value))
+    .filter((value) => {
+      const visibleChars = value.replace(/[^\x20-\x7E\u00a0-\uffff]/g, '');
+      return visibleChars.length / Math.max(value.length, 1) > 0.65;
+    })
+    .slice(0, 800);
 
   const cleaned = literalStrings
     .map((value) => value.replace(/\\[rn]/g, '\n').replace(/\\([()\\])/g, '$1'))
@@ -49,7 +73,7 @@ function extractPdfTextLoosely(buffer: Buffer) {
     .replace(/[^\S\r\n]+/g, ' ')
     .trim();
 
-  return cleaned.length > 80 ? cleaned : '';
+  return cleaned.length > 80 ? compactTextForModel(cleaned, 12000) : '';
 }
 
 export async function extractFileText(file: File | null): Promise<ExtractedDocument | null> {
@@ -77,7 +101,12 @@ export async function extractFileText(file: File | null): Promise<ExtractedDocum
     text = await file.text();
   }
 
-  return { fileName, text: text.trim(), warnings };
+  const compacted = compactTextForModel(text);
+  if (text.length > compacted.length) {
+    warnings.push(`文件《${fileName}》内容较长，已压缩截取后送入模型。`);
+  }
+
+  return { fileName, text: compacted, warnings };
 }
 
 export async function extractFilesText(files: File[]) {

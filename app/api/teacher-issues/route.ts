@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { extractPdfPageImages, type AviaPageImage } from '@/lib/avia-pdf-images';
 import { ocrImages } from '@/lib/baidu-ocr';
 import { chat, type Message } from '@/lib/deepseek';
-import { extractFileText } from '@/lib/document-extract';
+import { compactTextForModel, extractFileText } from '@/lib/document-extract';
 import { createTeacherIssueRecord, filterStoreByUser, readStore } from '@/lib/evidence-store';
 import { TEACHER_ISSUE_PROMPT } from '@/lib/prompts';
+import { analyzeAviaImagesWithQwenInBatches, hasQwenVisionConfig } from '@/lib/qwen-vision';
 import { requireUsername } from '@/lib/user-session';
 
 export const runtime = 'nodejs';
@@ -97,10 +99,45 @@ export async function POST(request: NextRequest) {
     const sourceArtifactTitle = String(formData.get('sourceArtifactTitle') || '').trim();
     const aviaImages = formData.getAll('aviaImages') as File[];
 
-    const aviaFile = await extractFileText(formData.get('aviaFile') as File | null);
+    const rawAviaFile = formData.get('aviaFile') as File | null;
+    const aviaFile = await extractFileText(rawAviaFile);
     const transcriptFile = await extractFileText(formData.get('transcriptFile') as File | null);
     let aviaImageOcrText = '';
+    let qwenVisionText = '';
     const imageWarnings: string[] = [];
+    const qwenApiKey = process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || '';
+    const qwenImages: AviaPageImage[] = [];
+
+    if (rawAviaFile && rawAviaFile.size > 0 && rawAviaFile.name.toLowerCase().endsWith('.pdf')) {
+      const pdfBuffer = Buffer.from(await rawAviaFile.arrayBuffer());
+      qwenImages.push(...extractPdfPageImages(pdfBuffer, Number(process.env.QWEN_VISION_MAX_PAGES || 0)));
+      if (qwenImages.length > 0) {
+        imageWarnings.push(`已从奥威亚 PDF 中抽取 ${qwenImages.length} 页页面，按批次交给千问视觉模型分析。`);
+      }
+    }
+
+    if (aviaImages.length > 0) {
+      const uploadedImages = await Promise.all(
+        aviaImages.map(async (image, index) => ({
+          label: `上传图表截图${index + 1}`,
+          mimeType: image.type || 'image/png',
+          buffer: Buffer.from(await image.arrayBuffer()),
+        }))
+      );
+      qwenImages.push(...uploadedImages);
+    }
+
+    if (qwenApiKey && qwenImages.length > 0 && hasQwenVisionConfig()) {
+      try {
+        qwenVisionText = await analyzeAviaImagesWithQwenInBatches(qwenImages, {
+          apiKey: qwenApiKey,
+        });
+      } catch (error) {
+        imageWarnings.push(error instanceof Error ? error.message : '千问多模态分析失败，已回退到 OCR/文本证据。');
+      }
+    } else if (qwenImages.length > 0) {
+      imageWarnings.push('已检测到 PDF 页面或图表截图，但未配置 QWEN_API_KEY/DASHSCOPE_API_KEY，未启用千问多模态分析。');
+    }
 
     if (aviaImages.length > 0) {
       const baiduApiKey = process.env.BAIDU_OCR_API_KEY;
@@ -117,6 +154,7 @@ export async function POST(request: NextRequest) {
 
     const aviaData = [
       aviaFile?.text ? `来自文件《${aviaFile.fileName}》：\n${aviaFile.text}` : '',
+      qwenVisionText ? `千问多模态对奥威亚 PDF/图表截图的结构化分析：\n${qwenVisionText}` : '',
       aviaImageOcrText ? `来自 ${aviaImages.length} 张奥威亚图表截图的 OCR 识别结果：\n${aviaImageOcrText}` : '',
       aviaDataText,
       ...(aviaFile?.warnings || []),
@@ -127,6 +165,10 @@ export async function POST(request: NextRequest) {
       transcriptText,
       ...(transcriptFile?.warnings || []),
     ].filter(Boolean).join('\n\n');
+    const compactLessonText = compactTextForModel(lessonText, 12000);
+    const compactTeacherDemands = compactTextForModel(teacherDemands, 6000);
+    const compactAviaData = compactTextForModel(aviaData, 18000);
+    const compactTranscript = compactTextForModel(transcript, 22000);
 
     if (!aviaData.trim() && !transcript.trim()) {
       return NextResponse.json({ error: '请上传奥威亚数据、逐字稿，或粘贴关键数据文本' }, { status: 400 });
@@ -134,7 +176,7 @@ export async function POST(request: NextRequest) {
 
     const store = filterStoreByUser(await readStore(), ownerUsername);
     const previousRecord = store.teacherIssueRecords[0];
-    const previousMarkdown = previousRecord?.markdown || '';
+    const previousMarkdown = compactTextForModel(previousRecord?.markdown || '', 8000);
 
     let markdown = '';
     if (apiKey) {
@@ -145,16 +187,16 @@ ${teacherName || ownerUsername}
 ${evidenceTitle}
 
 ## 课文内容
-${lessonText || '未提供课文内容。'}
+${compactLessonText || '未提供课文内容。'}
 
 ## 教师诉求
-${teacherDemands || '未提供额外诉求。'}
+${compactTeacherDemands || '未提供额外诉求。'}
 
 ## 奥威亚系统数据（已转文字）
-${aviaData || '未提供。'}
+${compactAviaData || '未提供。'}
 
 ## 课堂逐字稿
-${transcript || '未提供。'}
+${compactTranscript || '未提供。'}
 
 ## 上一次教师问题与改进记录
 ${previousMarkdown || '暂无上一次记录，本次作为基线。'}`;

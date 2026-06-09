@@ -29,6 +29,10 @@ yarn-error.log*
 # local runtime records
 /data/
 
+# local uploaded reports and temporary page extraction outputs
+*.pdf
+/tmp-avia-pages/
+
 # vercel
 .vercel
 
