@@ -133,7 +133,7 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
         {loading ? '生成并保存中...' : '生成教师存在的问题文档'}
       </button>
 
-      {status && <p className="rounded-lg border border-dark-border bg-dark-bg p-3 text-xs text-gray-300">{status}</p>}
+      {status && <p className="whitespace-pre-line rounded-lg border border-dark-border bg-dark-bg p-3 text-xs text-gray-300">{status}</p>}
 
       {result && (
         <div className="space-y-3">

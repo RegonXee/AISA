@@ -165,6 +165,8 @@ export async function POST(request: NextRequest) {
         error: [
           '奥威亚 PDF 是图片型报告，但千问多模态未成功读取，已停止生成，避免基于 PDF 乱码产生无效诊断。',
           qwenApiKey ? '请检查 QWEN_API_KEY、QWEN_API_ENDPOINT、QWEN_VISION_MODEL 是否正确，或查看百炼账号是否有 qwen-vl 模型权限。' : '请先在 .env.local 中配置 QWEN_API_KEY 或 DASHSCOPE_API_KEY。',
+          '具体信息：',
+          ...imageWarnings,
           '临时替代方案：上传关键图表截图并粘贴人工读出的核心指标，或上传课堂逐字稿。'
         ].join('\n'),
         details: imageWarnings,

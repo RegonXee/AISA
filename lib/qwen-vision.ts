@@ -21,14 +21,16 @@ function imageToDataUrl(image: AviaPageImage) {
 export async function analyzeAviaImagesWithQwen(images: AviaPageImage[], options: QwenVisionOptions) {
   if (images.length === 0) return '';
 
-  const response = await fetch(options.endpoint || process.env.QWEN_API_ENDPOINT || DEFAULT_QWEN_ENDPOINT, {
+  const endpoint = options.endpoint || process.env.QWEN_API_ENDPOINT || DEFAULT_QWEN_ENDPOINT;
+  const model = options.model || process.env.QWEN_VISION_MODEL || DEFAULT_QWEN_VISION_MODEL;
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${options.apiKey}`,
     },
     body: JSON.stringify({
-      model: options.model || process.env.QWEN_VISION_MODEL || DEFAULT_QWEN_VISION_MODEL,
+      model,
       messages: [
         { role: 'system', content: AVIA_VISION_SYSTEM_PROMPT },
         {
@@ -49,7 +51,8 @@ export async function analyzeAviaImagesWithQwen(images: AviaPageImage[], options
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error?.message || `千问视觉分析失败：${response.status}`);
+    const detail = typeof errorData === 'object' ? JSON.stringify(errorData) : String(errorData);
+    throw new Error(`千问视觉分析失败：HTTP ${response.status}；模型=${model}；接口=${endpoint}；错误=${errorData.error?.message || detail}`);
   }
 
   const data = await response.json();
@@ -57,12 +60,18 @@ export async function analyzeAviaImagesWithQwen(images: AviaPageImage[], options
 }
 
 export async function analyzeAviaImagesWithQwenInBatches(images: AviaPageImage[], options: QwenVisionOptions) {
-  const batchSize = Math.max(1, Number(process.env.QWEN_VISION_BATCH_SIZE || 4));
+  const batchSize = Math.max(1, Number(process.env.QWEN_VISION_BATCH_SIZE || 1));
   const results: string[] = [];
 
   for (let index = 0; index < images.length; index += batchSize) {
     const batch = images.slice(index, index + batchSize);
-    const batchResult = await analyzeAviaImagesWithQwen(batch, options);
+    let batchResult = '';
+    try {
+      batchResult = await analyzeAviaImagesWithQwen(batch, options);
+    } catch (error) {
+      const batchLabel = batch.map((image) => image.label).join('、');
+      throw new Error(`千问视觉批次 ${Math.floor(index / batchSize) + 1} 失败（${batchLabel}）：${error instanceof Error ? error.message : '未知错误'}`);
+    }
     if (batchResult.trim()) {
       results.push(`## 千问视觉批次 ${Math.floor(index / batchSize) + 1}（${batch.map((image) => image.label).join('、')}）\n${batchResult}`);
     }
