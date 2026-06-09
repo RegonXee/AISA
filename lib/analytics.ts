@@ -11,6 +11,7 @@ export interface TeacherProfileMetrics {
 
 export interface OverallEvaluation {
   score: number;
+  level: string;
   dimensions: Array<{
     key: string;
     label: string;
@@ -162,7 +163,8 @@ export function calculateOverallEvaluation(data: StoreData): OverallEvaluation {
     },
   ];
   const score = clampScore(average(dimensions.map((item) => item.score)));
-  return { score, dimensions };
+  const level = score >= 85 ? '成熟稳定' : score >= 70 ? '发展良好' : score >= 55 ? '改进中' : '需要积累证据';
+  return { score, level, dimensions };
 }
 
 export function buildMonthlyTrend(data: StoreData) {
@@ -263,7 +265,7 @@ export function buildCaseReport(data: StoreData) {
 ${logLines}
 
 ## 三、教师发展画像
-- 整体评分：${overall.score}/100
+- 整体评分：${overall.score}/100（${overall.level}）
 - 课堂主导方式：${metrics.classroomGuidance}
 - 问题设计质量：${metrics.questionQuality}
 - 学生语言产出：${metrics.studentLanguageOutput}

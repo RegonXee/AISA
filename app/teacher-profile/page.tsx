@@ -20,6 +20,7 @@ interface OverallDimension {
 
 interface OverallEvaluation {
   score: number;
+  level: string;
   dimensions: OverallDimension[];
 }
 
@@ -80,6 +81,9 @@ function OverallRing({ overall }: { overall: OverallEvaluation }) {
         </text>
         <text x="90" y="108" textAnchor="middle" className="fill-slate-400 text-xs">
           整体评分 / 100
+        </text>
+        <text x="90" y="126" textAnchor="middle" className="fill-sky-300 text-xs">
+          {overall.level}
         </text>
       </svg>
     </div>

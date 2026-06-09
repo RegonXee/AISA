@@ -13,6 +13,7 @@ interface Profile {
 
 interface OverallEvaluation {
   score: number;
+  level: string;
 }
 
 interface TrendItem {
@@ -63,6 +64,9 @@ function MiniRing({ overall }: { overall: OverallEvaluation }) {
       </text>
       <text x="60" y="75" textAnchor="middle" className="fill-slate-400 text-[10px]">
         整体评分 / 100
+      </text>
+      <text x="60" y="90" textAnchor="middle" className="fill-sky-300 text-[10px]">
+        {overall.level}
       </text>
     </svg>
   );
