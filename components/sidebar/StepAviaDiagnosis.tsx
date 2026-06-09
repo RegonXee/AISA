@@ -22,6 +22,7 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
   const [aviaDataText, setAviaDataText] = useState('');
   const [transcriptText, setTranscriptText] = useState('');
   const [result, setResult] = useState('');
+  const [evidenceResult, setEvidenceResult] = useState('');
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -31,10 +32,39 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
     return node?.textContent?.trim() || '';
   }
 
+  async function readJsonResponse(response: Response) {
+    const rawText = await response.text();
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      try {
+        return JSON.parse(rawText);
+      } catch {
+        throw new Error(`接口返回了无效 JSON（HTTP ${response.status}）：${rawText.slice(0, 300)}`);
+      }
+    }
+
+    const plainText = rawText
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const preview = plainText.slice(0, 500) || rawText.slice(0, 300);
+    const likelyReason = response.status === 413
+      ? '上传文件过大，常见原因是 Nginx 的 client_max_body_size 过小。'
+      : response.status === 502 || response.status === 504
+        ? '服务端处理奥威亚 PDF/OCR 时间过长，反向代理或 Node 服务可能超时。'
+        : response.status >= 500
+          ? '服务端返回了 HTML 错误页，请查看服务器终端或 PM2 日志。'
+          : '请求没有命中预期的 JSON 接口，可能是登录、代理或路由配置问题。';
+    throw new Error(`接口没有返回 JSON（HTTP ${response.status}）。${likelyReason}\n\n返回内容预览：${preview}`);
+  }
+
   async function generate() {
     setLoading(true);
     setStatus('');
     setResult('');
+    setEvidenceResult('');
     try {
       const formData = new FormData();
       formData.append('teacherName', teacherName);
@@ -52,10 +82,11 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
       }
 
       const response = await fetch('/api/teacher-issues', { method: 'POST', body: formData });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (!response.ok) throw new Error(data.error || '生成教师问题诊断失败');
       setResult(data.markdown || data.record?.markdown || '');
-      setStatus('已保存为教师“存在的问题与改进”Markdown 记录。');
+      setEvidenceResult(data.aviaEvidenceMarkdown || data.evidenceMarkdown || '');
+      setStatus('已保存为教师“存在的问题与改进”Markdown 记录；奥威亚识别合并 MD 已同步生成。');
       onSaved?.();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '生成教师问题诊断失败');
@@ -90,6 +121,19 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.download = '教师存在的问题与改进.md';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadEvidenceMarkdown() {
+    if (!evidenceResult) return;
+    const blob = new Blob([evidenceResult], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = '奥威亚识别合并.md';
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
@@ -140,7 +184,16 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
           <div className="flex gap-2">
             <button onClick={downloadMarkdown} className="flex-1 rounded-lg border border-dark-border px-3 py-2 text-xs text-gray-300 hover:text-primary">下载 MD</button>
             <button onClick={downloadDoc} className="flex-1 rounded-lg border border-dark-border px-3 py-2 text-xs text-gray-300 hover:text-secondary">下载 DOC</button>
+            {evidenceResult && <button onClick={downloadEvidenceMarkdown} className="flex-1 rounded-lg border border-dark-border px-3 py-2 text-xs text-gray-300 hover:text-secondary">下载奥威亚识别 MD</button>}
           </div>
+          {evidenceResult && (
+            <details className="rounded-lg border border-dark-border bg-dark-bg p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-gray-300">查看奥威亚识别合并 MD</summary>
+              <div className="mt-3 max-h-72 overflow-y-auto border-t border-dark-border pt-3">
+                <MarkdownRenderer content={evidenceResult} />
+              </div>
+            </details>
+          )}
           <div className="max-h-80 overflow-y-auto rounded-lg border border-dark-border bg-dark-bg p-3">
             <MarkdownRenderer content={result} />
           </div>

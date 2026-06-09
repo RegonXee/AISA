@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { extractPdfPageImages, type AviaPageImage } from '@/lib/avia-pdf-images';
+import { generateAviaReportMarkdownFromPdf } from '@/lib/avia-report-ocr';
 import { ocrImages } from '@/lib/baidu-ocr';
 import { chat, type Message } from '@/lib/deepseek';
 import { compactTextForModel, extractFileText } from '@/lib/document-extract';
 import { createTeacherIssueRecord, filterStoreByUser, readStore } from '@/lib/evidence-store';
 import { TEACHER_ISSUE_PROMPT } from '@/lib/prompts';
-import { analyzeAviaImagesWithQwenInBatches, hasQwenVisionConfig } from '@/lib/qwen-vision';
 import { requireUsername } from '@/lib/user-session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -38,6 +38,14 @@ function hasUsefulManualEvidence(...values: string[]) {
   return values.some((value) => value.trim().length > 80);
 }
 
+function looksLikeGarbledPdfText(value: string) {
+  if (!value.trim()) return false;
+  const suspiciousChars = (value.match(/[ÿþýøÄÅÆÇÐÑØÜÝÞß�]/g) || []).length;
+  const readableChars = (value.match(/[\u4e00-\u9fa5A-Za-z0-9，。；：！？、（）《》“”‘’%\s/.-]/g) || []).length;
+  const totalChars = Math.max(value.length, 1);
+  return suspiciousChars >= 3 || readableChars / totalChars < 0.55;
+}
+
 function buildFallbackMarkdown(input: {
   ownerUsername: string;
   teacherName: string;
@@ -55,7 +63,7 @@ function buildFallbackMarkdown(input: {
 
 ## 数据可靠性检查
 - 可用数据：已读取教师补充的奥威亚文字数据与课堂逐字稿。
-- 忽略或谨慎使用的数据：若报告中的图表没有被转换为文字，DeepSeek 暂不能直接识别；若出现板书率为 0 等明显异常值，应作为异常项忽略。
+- 忽略或谨慎使用的数据：若报告中的图表未能通过 OCR/视觉模型稳定转写，需谨慎使用；若出现板书率为 0 等明显异常值，应作为异常项忽略。
 
 ## 教师存在的问题
 1. 证据组织仍需人工复核。当前输入文本长度：奥威亚数据 ${input.aviaData.length} 字，逐字稿 ${input.transcript.length} 字。
@@ -104,43 +112,28 @@ export async function POST(request: NextRequest) {
     const aviaImages = formData.getAll('aviaImages') as File[];
 
     const rawAviaFile = formData.get('aviaFile') as File | null;
+    const rawAviaBuffer = rawAviaFile && rawAviaFile.size > 0
+      ? Buffer.from(await rawAviaFile.arrayBuffer())
+      : null;
     const aviaFile = await extractFileText(rawAviaFile);
     const transcriptFile = await extractFileText(formData.get('transcriptFile') as File | null);
     let aviaImageOcrText = '';
-    let qwenVisionText = '';
+    let aviaReportMarkdown = '';
     const imageWarnings: string[] = [];
-    const qwenApiKey = process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || '';
-    const qwenImages: AviaPageImage[] = [];
 
-    if (rawAviaFile && rawAviaFile.size > 0 && rawAviaFile.name.toLowerCase().endsWith('.pdf')) {
-      const pdfBuffer = Buffer.from(await rawAviaFile.arrayBuffer());
-      qwenImages.push(...extractPdfPageImages(pdfBuffer, Number(process.env.QWEN_VISION_MAX_PAGES || 0)));
-      if (qwenImages.length > 0) {
-        imageWarnings.push(`已从奥威亚 PDF 中抽取 ${qwenImages.length} 页页面，按批次交给千问视觉模型分析。`);
-      }
-    }
-
-    if (aviaImages.length > 0) {
-      const uploadedImages = await Promise.all(
-        aviaImages.map(async (image, index) => ({
-          label: `上传图表截图${index + 1}`,
-          mimeType: image.type || 'image/png',
-          buffer: Buffer.from(await image.arrayBuffer()),
-        }))
-      );
-      qwenImages.push(...uploadedImages);
-    }
-
-    if (qwenApiKey && qwenImages.length > 0 && hasQwenVisionConfig()) {
+    const rawAviaFileName = rawAviaFile?.name.toLowerCase() || '';
+    const rawAviaIsPdf = rawAviaFileName.endsWith('.pdf') || rawAviaFile?.type === 'application/pdf';
+    if (rawAviaFile && rawAviaBuffer && rawAviaIsPdf) {
       try {
-        qwenVisionText = await analyzeAviaImagesWithQwenInBatches(qwenImages, {
-          apiKey: qwenApiKey,
-        });
+        const ocrResult = await generateAviaReportMarkdownFromPdf(rawAviaFile.name, rawAviaBuffer);
+        aviaReportMarkdown = ocrResult.markdown;
+        imageWarnings.push(
+          `已用 PyMuPDF 按 ${ocrResult.metadata?.dpi || 200}dpi 渲染奥威亚 PDF，并用硅基流动视觉模型处理 ${ocrResult.metadata?.renderedPageCount || 0}/${ocrResult.metadata?.pageCount || 0} 页。`
+        );
+        imageWarnings.push(...ocrResult.warnings);
       } catch (error) {
-        imageWarnings.push(error instanceof Error ? error.message : '千问多模态分析失败，已回退到 OCR/文本证据。');
+        imageWarnings.push(`奥威亚 PDF 渲染/OCR/硅基流动视觉识别失败：${error instanceof Error ? error.message : '未知错误'}`);
       }
-    } else if (qwenImages.length > 0) {
-      imageWarnings.push('已检测到 PDF 页面或图表截图，但未配置 QWEN_API_KEY/DASHSCOPE_API_KEY，未启用千问多模态分析。');
     }
 
     if (aviaImages.length > 0) {
@@ -156,26 +149,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const isImagePdf = Boolean(rawAviaFile?.name.toLowerCase().endsWith('.pdf') && qwenImages.length > 0);
-    const shouldUseLoosePdfText = !isImagePdf || Boolean(qwenVisionText);
     const manualEvidenceAvailable = hasUsefulManualEvidence(aviaDataText, transcriptText, transcriptFile?.text || '');
-
-    if (isImagePdf && !qwenVisionText && !manualEvidenceAvailable) {
-      return NextResponse.json({
-        error: [
-          '奥威亚 PDF 是图片型报告，但千问多模态未成功读取，已停止生成，避免基于 PDF 乱码产生无效诊断。',
-          qwenApiKey ? '请检查 QWEN_API_KEY、QWEN_API_ENDPOINT、QWEN_VISION_MODEL 是否正确，或查看百炼账号是否有 qwen-vl 模型权限。' : '请先在 .env.local 中配置 QWEN_API_KEY 或 DASHSCOPE_API_KEY。',
-          '具体信息：',
-          ...imageWarnings,
-          '临时替代方案：上传关键图表截图并粘贴人工读出的核心指标，或上传课堂逐字稿。'
-        ].join('\n'),
-        details: imageWarnings,
-      }, { status: 400 });
-    }
+    const loosePdfTextUsable = Boolean(
+      aviaFile?.text &&
+      (!rawAviaIsPdf || !looksLikeGarbledPdfText(aviaFile.text))
+    );
 
     const aviaData = [
-      aviaFile?.text && shouldUseLoosePdfText ? `来自文件《${aviaFile.fileName}》：\n${aviaFile.text}` : '',
-      qwenVisionText ? `千问多模态对奥威亚 PDF/图表截图的结构化分析：\n${qwenVisionText}` : '',
+      aviaReportMarkdown ? `奥威亚 PDF 经 PyMuPDF 渲染、百度 OCR 保底、硅基流动视觉模型结构识别后的 Markdown：\n${aviaReportMarkdown}` : '',
+      loosePdfTextUsable && !aviaReportMarkdown ? `来自文件《${aviaFile?.fileName}》：\n${aviaFile?.text}` : '',
+      rawAviaIsPdf && aviaFile?.text && !loosePdfTextUsable ? 'PDF 可提取文本疑似为二进制乱码，已忽略该部分，避免污染诊断。' : '',
       aviaImageOcrText ? `来自 ${aviaImages.length} 张奥威亚图表截图的 OCR 识别结果：\n${aviaImageOcrText}` : '',
       aviaDataText,
       ...(aviaFile?.warnings || []),
@@ -188,7 +171,7 @@ export async function POST(request: NextRequest) {
     ].filter(Boolean).join('\n\n');
     const compactLessonText = compactTextForModel(lessonText, 12000);
     const compactTeacherDemands = compactTextForModel(teacherDemands, 6000);
-    const compactAviaData = compactTextForModel(aviaData, 18000);
+    const compactAviaData = compactTextForModel(aviaData, 60000);
     const compactTranscript = compactTextForModel(transcript, 22000);
 
     if (!aviaData.trim() && !transcript.trim()) {
@@ -200,6 +183,18 @@ export async function POST(request: NextRequest) {
     const previousMarkdown = compactTextForModel(previousRecord?.markdown || '', 8000);
 
     let markdown = '';
+    if (!markdown && rawAviaIsPdf && !aviaReportMarkdown && !loosePdfTextUsable && !manualEvidenceAvailable && aviaImages.length === 0) {
+      return NextResponse.json({
+        error: [
+          '已收到奥威亚 PDF，但 PyMuPDF 渲染/OCR/硅基流动视觉识别没有成功生成有效证据。为避免基于乱码或空证据生成无效报告，已停止。',
+          '具体信息：',
+          ...imageWarnings,
+          '请检查服务器是否已安装 PyMuPDF：pip install pymupdf；并确认 SILICONFLOW_API_KEY、SILICONFLOW_VISION_MODEL 是否正确。',
+        ].join('\n'),
+        details: imageWarnings,
+      }, { status: 400 });
+    }
+
     if (apiKey) {
       const userContent = `## 教师
 ${teacherName || ownerUsername}
@@ -213,7 +208,7 @@ ${compactLessonText || '未提供课文内容。'}
 ## 教师诉求
 ${compactTeacherDemands || '未提供额外诉求。'}
 
-## 奥威亚系统数据（已转文字）
+## 奥威亚系统数据（已转 Markdown/文字）
 ${compactAviaData || '未提供。'}
 
 ## 课堂逐字稿
@@ -268,8 +263,15 @@ ${previousMarkdown || '暂无上一次记录，本次作为基线。'}`;
       nextAction,
     });
 
-    return NextResponse.json({ record, markdown });
+    return NextResponse.json({
+      record,
+      markdown,
+      aviaEvidenceMarkdown: aviaReportMarkdown,
+      evidenceMarkdown: aviaData,
+      evidenceWarnings: imageWarnings,
+    });
   } catch (error) {
+    console.error('[teacher-issues] failed to generate teacher diagnosis', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '生成教师问题诊断失败' },
       { status: error instanceof Error && error.message.includes('登录') ? 401 : 500 }

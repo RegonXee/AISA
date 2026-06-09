@@ -95,7 +95,7 @@ export async function extractFileText(file: File | null): Promise<ExtractedDocum
   } else if (lowerName.endsWith('.pdf')) {
     text = extractPdfTextLoosely(buffer);
     warnings.push(
-      'PDF 已接收。若该奥威亚报告主要由图表或截图组成，请同步上传关键图表截图，或粘贴视觉模型/人工读图后的指标描述；DeepSeek 只会分析已转成文字的数据。'
+      'PDF 已接收。若该奥威亚报告主要由图表或截图组成，系统会尝试用 PyMuPDF 按 200dpi 渲染页面，并通过硅基流动视觉模型逐页转成结构化 Markdown。'
     );
   } else {
     text = await file.text();
