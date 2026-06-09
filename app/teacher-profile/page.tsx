@@ -20,7 +20,6 @@ interface OverallDimension {
 
 interface OverallEvaluation {
   score: number;
-  level: string;
   dimensions: OverallDimension[];
 }
 
@@ -80,12 +79,9 @@ function OverallRing({ overall }: { overall: OverallEvaluation }) {
           {overall.score}
         </text>
         <text x="90" y="108" textAnchor="middle" className="fill-slate-400 text-xs">
-          {overall.level}
+          整体评分 / 100
         </text>
       </svg>
-      <p className="mt-2 max-w-sm text-center text-sm leading-relaxed text-gray-400">
-        总评关注课堂改进成熟度，不以是否完全照搬 AI 教案或原教案作为评价依据。
-      </p>
     </div>
   );
 }

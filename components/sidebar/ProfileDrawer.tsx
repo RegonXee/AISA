@@ -13,7 +13,6 @@ interface Profile {
 
 interface OverallEvaluation {
   score: number;
-  level: string;
 }
 
 interface TrendItem {
@@ -63,7 +62,7 @@ function MiniRing({ overall }: { overall: OverallEvaluation }) {
         {overall.score}
       </text>
       <text x="60" y="75" textAnchor="middle" className="fill-slate-400 text-[10px]">
-        {overall.level}
+        整体评分 / 100
       </text>
     </svg>
   );
@@ -76,28 +75,51 @@ export default function ProfileDrawer({ refreshKey = 0, defaultOpen = false }: {
   const [trend, setTrend] = useState<TrendItem[]>([]);
   const [timeline, setTimeline] = useState<IssueTimelineItem[]>([]);
   const [status, setStatus] = useState('');
+  const [clearing, setClearing] = useState(false);
+
+  async function load() {
+    try {
+      const response = await fetch('/api/case-materials');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '读取教师画像失败');
+      setProfile(data.profile);
+      setOverall(data.overall);
+      setTrend(data.trend || []);
+      setTimeline(data.issueTimeline || []);
+      setStatus('');
+    } catch (error) {
+      setProfile(null);
+      setOverall(null);
+      setTrend([]);
+      setTimeline([]);
+      setStatus(error instanceof Error ? error.message : '读取教师画像失败');
+    }
+  }
 
   useEffect(() => {
-    async function load() {
-      try {
-        const response = await fetch('/api/case-materials');
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || '读取教师画像失败');
-        setProfile(data.profile);
-        setOverall(data.overall);
-        setTrend(data.trend || []);
-        setTimeline(data.issueTimeline || []);
-        setStatus('');
-      } catch (error) {
-        setProfile(null);
-        setOverall(null);
-        setTrend([]);
-        setTimeline([]);
-        setStatus(error instanceof Error ? error.message : '读取教师画像失败');
-      }
-    }
     load();
   }, [refreshKey]);
+
+  async function clearCurrentUserData() {
+    const confirmed = window.confirm('确定清除当前用户的全部数据吗？这会删除课例、协同记录、改进任务、奥威亚诊断记录和教师画像时间轴。');
+    if (!confirmed) return;
+    const secondConfirmed = window.confirm('请再次确认：该操作只清除当前登录用户的数据，但不可恢复。');
+    if (!secondConfirmed) return;
+
+    setClearing(true);
+    setStatus('');
+    try {
+      const response = await fetch('/api/case-materials', { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '清除当前用户数据失败');
+      await load();
+      setStatus(`已清除当前用户数据：奥威亚诊断 ${data.removed?.teacherIssueRecords || 0} 条。`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '清除当前用户数据失败');
+    } finally {
+      setClearing(false);
+    }
+  }
 
   return (
     <section className="rounded-xl border border-dark-border bg-dark-card">
@@ -115,9 +137,6 @@ export default function ProfileDrawer({ refreshKey = 0, defaultOpen = false }: {
       {open && profile && overall && (
         <div className="space-y-4 border-t border-dark-border p-4">
           <MiniRing overall={overall} />
-          <p className="text-center text-xs leading-relaxed text-gray-500">
-            总评不以是否照搬 AI 教案作为依据。
-          </p>
           <div className="grid grid-cols-2 gap-2 text-xs">
             {AXES.map((axis) => (
               <div key={axis.key} className="rounded-lg bg-dark-bg p-3">
@@ -149,6 +168,13 @@ export default function ProfileDrawer({ refreshKey = 0, defaultOpen = false }: {
               </div>
             ))}
           </div>
+          <button
+            onClick={clearCurrentUserData}
+            disabled={clearing}
+            className="w-full rounded-lg border border-red-500/50 px-3 py-2 text-xs font-semibold text-red-200 hover:border-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {clearing ? '清除中...' : '清除当前用户数据'}
+          </button>
         </div>
       )}
     </section>
