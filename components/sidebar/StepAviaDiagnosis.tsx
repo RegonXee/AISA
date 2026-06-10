@@ -40,6 +40,24 @@ interface JobInfo {
   };
 }
 
+function formatJobStage(stage?: string) {
+  if (stage?.startsWith('recognizing-pages:')) {
+    return `5路视觉识别中（${stage.replace('recognizing-pages:', '')}页）`;
+  }
+
+  const stageMap: Record<string, string> = {
+    queued: '排队中',
+    preparing: '准备文件',
+    'restarting-stale-job': '续跑陈旧任务',
+    'recognizing-pages': '5路视觉识别中',
+    'summarizing-evidence': '整理诊断证据',
+    'generating-diagnosis': '生成诊断文档',
+    completed: '已完成',
+    failed: '失败',
+  };
+  return stage ? stageMap[stage] || stage : '处理中';
+}
+
 export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props) {
   const aviaInputRef = useRef<HTMLInputElement>(null);
   const aviaImageInputRef = useRef<HTMLInputElement>(null);
@@ -193,7 +211,7 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
           if (pollTimerRef.current) window.clearInterval(pollTimerRef.current);
         } else {
           setLatestJob(currentJob);
-          setStatus(`后台识别中：${currentJob.stage || '处理中'}。关闭浏览器也会继续执行。`);
+          setStatus(`后台识别中：${formatJobStage(currentJob.stage)}。关闭浏览器也会继续执行。`);
         }
       } catch (error) {
         setStatus(error instanceof Error ? error.message : '后台任务查询失败');
@@ -322,6 +340,7 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
               {latestJob.payload?.evidenceTitle || '未命名课例'}
               {latestJob.payload?.teacherName ? ` · ${latestJob.payload.teacherName}` : ''}
             </p>
+            <p className="text-[11px] text-gray-500">当前阶段：{formatJobStage(latestJob.stage)}</p>
             {latestJobTime && <p className="text-[11px] text-gray-500">更新时间：{latestJobTime}</p>}
             <div className="grid grid-cols-2 gap-2">
               <button onClick={restoreLatestJob} disabled={latestJob.status !== 'completed'} className="rounded-md border border-dark-border px-2 py-1.5 text-xs text-gray-300 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50">

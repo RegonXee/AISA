@@ -8,6 +8,7 @@ import {
   filterStoreByUser,
   getTeacherIssueJob,
   readStore,
+  type TeacherIssueJob,
   type TeacherIssueJobPayload,
 } from '@/lib/evidence-store';
 import { processTeacherIssueJob } from '@/lib/teacher-issue-background';
@@ -29,6 +30,23 @@ async function saveUploadFile(baseDir: string, file: File) {
   return filePath;
 }
 
+function getStaleJobMs() {
+  return Math.max(60_000, Number(process.env.AVIA_JOB_STALE_MS || 10 * 60 * 1000));
+}
+
+function isRestartableJob(job: TeacherIssueJob) {
+  if (job.status !== 'running' && job.status !== 'pending') return false;
+  const updatedAt = new Date(job.updatedAt).getTime();
+  return Number.isFinite(updatedAt) && Date.now() - updatedAt > getStaleJobMs();
+}
+
+function resumeStaleJob(ownerUsername: string, job: TeacherIssueJob) {
+  if (!isRestartableJob(job)) return;
+  void processTeacherIssueJob(ownerUsername, job.id, { force: true }).catch((error) => {
+    console.error('[teacher-issues] failed to resume stale background job', error);
+  });
+}
+
 export async function GET(request: NextRequest) {
   try {
     const ownerUsername = requireUsername(request);
@@ -39,10 +57,13 @@ export async function GET(request: NextRequest) {
       if (!job) {
         return NextResponse.json({ error: '未找到教师诊断任务' }, { status: 404 });
       }
+      resumeStaleJob(ownerUsername, job);
       return NextResponse.json({ job });
     }
 
     const store = filterStoreByUser(await readStore(), ownerUsername);
+    const latestJob = store.teacherIssueJobs[0];
+    if (latestJob) resumeStaleJob(ownerUsername, latestJob);
     return NextResponse.json({
       records: store.teacherIssueRecords,
       jobs: store.teacherIssueJobs,

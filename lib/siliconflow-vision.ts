@@ -5,6 +5,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 120000;
 
 interface SiliconFlowVisionOptions {
   apiKey: string;
+  apiKeys?: string[];
   endpoint?: string;
   model?: string;
   maxTokens?: number;
@@ -29,9 +30,40 @@ function readProviderError(errorData: unknown) {
   return record.error?.message || record.message || JSON.stringify(errorData);
 }
 
+function splitApiKeys(value: string) {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getSiliconFlowApiKeys() {
+  const numberedKeys = [
+    process.env.SILICONFLOW_API_KEY_1,
+    process.env.SILICONFLOW_API_KEY_2,
+    process.env.SILICONFLOW_API_KEY_3,
+    process.env.SILICONFLOW_API_KEY_4,
+    process.env.SILICONFLOW_API_KEY_5,
+  ].filter((item): item is string => Boolean(item?.trim()));
+  const keys = [
+    ...splitApiKeys(process.env.SILICONFLOW_API_KEYS || ''),
+    ...numberedKeys,
+    process.env.SILICONFLOW_API_KEY || '',
+  ].filter(Boolean);
+
+  return Array.from(new Set(keys));
+}
+
+function pickApiKey(options: SiliconFlowVisionOptions, pageNumber: number) {
+  const apiKeys = options.apiKeys?.length ? options.apiKeys : [options.apiKey].filter(Boolean);
+  return apiKeys[(Math.max(1, pageNumber) - 1) % apiKeys.length] || '';
+}
+
 export function getSiliconFlowVisionConfig() {
+  const apiKeys = getSiliconFlowApiKeys();
   return {
-    apiKey: process.env.SILICONFLOW_API_KEY || '',
+    apiKey: apiKeys[0] || '',
+    apiKeys,
     endpoint: process.env.SILICONFLOW_API_ENDPOINT || DEFAULT_SILICONFLOW_ENDPOINT,
     model: process.env.SILICONFLOW_VISION_MODEL || DEFAULT_SILICONFLOW_VISION_MODEL,
     maxTokens: Math.max(1024, Number(process.env.SILICONFLOW_VISION_MAX_TOKENS || DEFAULT_PAGE_MAX_TOKENS)),
@@ -41,7 +73,7 @@ export function getSiliconFlowVisionConfig() {
 }
 
 export function hasSiliconFlowVisionConfig() {
-  return Boolean(getSiliconFlowVisionConfig().apiKey);
+  return getSiliconFlowVisionConfig().apiKeys.length > 0;
 }
 
 export async function analyzeAviaPageWithSiliconFlow(input: AnalyzePageInput, options: SiliconFlowVisionOptions) {
@@ -50,8 +82,14 @@ export async function analyzeAviaPageWithSiliconFlow(input: AnalyzePageInput, op
   const maxTokens = options.maxTokens || DEFAULT_PAGE_MAX_TOKENS;
   const temperature = options.temperature ?? 0.1;
   const timeoutMs = options.timeoutMs || DEFAULT_REQUEST_TIMEOUT_MS;
+  const apiKey = pickApiKey(options, input.pageNumber);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  if (!apiKey) {
+    clearTimeout(timeout);
+    throw new Error('未配置 SILICONFLOW_API_KEY 或 SILICONFLOW_API_KEYS，无法调用硅基流动视觉模型。');
+  }
 
   const prompt = `请将这张奥威亚 AI课堂基础分析报告图片中的所有内容完整转为结构化 Markdown。
 
@@ -75,7 +113,7 @@ ${input.baiduOcrText.trim() || '百度 OCR 未识别到有效文字。'}`;
     response = await fetch(endpoint, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${options.apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       signal: controller.signal,

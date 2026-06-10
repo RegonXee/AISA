@@ -150,14 +150,82 @@ function buildMemoryInput(payload: TeacherIssueJobPayload, evidenceMarkdown: str
   };
 }
 
-export async function processTeacherIssueJob(ownerUsername: string, jobId: string) {
+function getDiagnosisEvidenceMaxChars() {
+  return Math.max(8000, Number(process.env.AVIA_DIAGNOSIS_EVIDENCE_CHARS || 28000));
+}
+
+function getEvidenceChunkChars() {
+  return Math.max(8000, Number(process.env.AVIA_EVIDENCE_CHUNK_CHARS || 16000));
+}
+
+function splitTextBySize(value: string, maxChars: number) {
+  const chunks: string[] = [];
+  for (let index = 0; index < value.length; index += maxChars) {
+    chunks.push(value.slice(index, index + maxChars));
+  }
+  return chunks;
+}
+
+async function buildDiagnosisEvidence(evidenceMarkdown: string, apiKey: string) {
+  const maxChars = getDiagnosisEvidenceMaxChars();
+  if (!apiKey || evidenceMarkdown.length <= maxChars) {
+    return compactTextForModel(evidenceMarkdown, maxChars);
+  }
+
+  const chunkSize = getEvidenceChunkChars();
+  const chunks = splitTextBySize(evidenceMarkdown, chunkSize);
+  const summaries: string[] = [];
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index] || '';
+    try {
+      const summary = await chat([
+        {
+          role: 'system',
+          content: [
+            '你是英语课堂教学诊断助手。',
+            '你的任务不是生成最终评价，而是从奥威亚 OCR Markdown 分块中提取可用于诊断的证据。',
+            '必须保留页码、指标名称、数值、异常数据、课堂行为、问题列表、建议列表和可疑 OCR 点。',
+            '不要扩写，不要臆测，不要评价教师人格，只整理证据。',
+          ].join('\n'),
+        },
+        {
+          role: 'user',
+          content: `这是奥威亚 OCR Markdown 的第 ${index + 1}/${chunks.length} 个分块。请输出结构化 Markdown 证据摘要。\n\n${chunk}`,
+        },
+      ], apiKey);
+      summaries.push(`## 证据分块 ${index + 1}/${chunks.length}\n\n${summary}`);
+    } catch (error) {
+      summaries.push([
+        `## 证据分块 ${index + 1}/${chunks.length}`,
+        '',
+        `> 本分块摘要 API 失败，已保留压缩原文。错误：${error instanceof Error ? error.message : '未知错误'}`,
+        '',
+        compactTextForModel(chunk, 6000),
+      ].join('\n'));
+    }
+  }
+
+  return compactTextForModel([
+    '# 奥威亚诊断证据包',
+    '',
+    `- 原始拼接 Markdown 字符数：${evidenceMarkdown.length}`,
+    `- 分块数量：${chunks.length}`,
+    '',
+    summaries.join('\n\n---\n\n'),
+  ].join('\n'), maxChars);
+}
+
+export async function processTeacherIssueJob(ownerUsername: string, jobId: string, options: { force?: boolean } = {}) {
   const existingJob = await getTeacherIssueJob(ownerUsername, jobId);
-  if (!existingJob || existingJob.status !== 'pending') return existingJob;
+  if (!existingJob || (existingJob.status !== 'pending' && !(options.force && existingJob.status === 'running'))) {
+    return existingJob;
+  }
 
   const startedAt = new Date().toISOString();
   await updateTeacherIssueJob(jobId, ownerUsername, {
     status: 'running',
-    stage: 'preparing',
+    stage: options.force ? 'restarting-stale-job' : 'preparing',
     startedAt,
   });
 
@@ -173,7 +241,12 @@ export async function processTeacherIssueJob(ownerUsername: string, jobId: strin
 
     if (aviaReportBuffer && payload.aviaFileName?.toLowerCase().endsWith('.pdf')) {
       try {
-        const ocrResult = await generateAviaReportMarkdownFromPdf(payload.aviaFileName, aviaReportBuffer);
+        await updateTeacherIssueJob(jobId, ownerUsername, { stage: 'recognizing-pages' });
+        const ocrResult = await generateAviaReportMarkdownFromPdf(payload.aviaFileName, aviaReportBuffer, {
+          onProgress: (progress) => updateTeacherIssueJob(jobId, ownerUsername, {
+            stage: `recognizing-pages:${progress.completedPages}/${progress.totalPages}`,
+          }).then(() => undefined),
+        });
         aviaReportMarkdown = ocrResult.markdown;
         imageWarnings.push(...ocrResult.warnings);
       } catch (error) {
@@ -217,12 +290,15 @@ export async function processTeacherIssueJob(ownerUsername: string, jobId: strin
     );
     const compactTranscript = compactTextForModel([payload.transcriptText, transcriptFileText].filter(Boolean).join('\n\n'), 22000);
     const evidenceMarkdown = aviaReportMarkdown || compactAviaData;
+    await updateTeacherIssueJob(jobId, ownerUsername, { stage: 'summarizing-evidence' });
+    const diagnosisAviaData = await buildDiagnosisEvidence(evidenceMarkdown, apiKey || '');
 
     let markdown = '';
     if (apiKey) {
+      await updateTeacherIssueJob(jobId, ownerUsername, { stage: 'generating-diagnosis' });
       const userContent = buildPromptInput({
         ...payload,
-        aviaDataText: compactAviaData,
+        aviaDataText: diagnosisAviaData,
         transcriptText: compactTranscript,
         lessonText: compactLessonText,
         teacherDemands: compactTeacherDemands,
@@ -239,7 +315,7 @@ export async function processTeacherIssueJob(ownerUsername: string, jobId: strin
         ownerUsername,
         teacherName: payload.teacherName,
         evidenceTitle: payload.evidenceTitle,
-        aviaData: compactAviaData,
+        aviaData: diagnosisAviaData,
         transcript: compactTranscript,
         previousMarkdown,
       });

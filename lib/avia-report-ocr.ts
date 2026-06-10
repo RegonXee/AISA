@@ -35,6 +35,16 @@ export interface AviaReportMarkdownResult {
   metadata?: RenderMetadata;
 }
 
+export interface AviaReportMarkdownProgress {
+  completedPages: number;
+  totalPages: number;
+  currentPage: number;
+}
+
+export interface AviaReportMarkdownOptions {
+  onProgress?: (progress: AviaReportMarkdownProgress) => void | Promise<void>;
+}
+
 function getPythonCommand() {
   return process.env.PYTHON_BIN || process.env.PYTHON || 'python';
 }
@@ -45,6 +55,33 @@ function getRenderDpi() {
 
 function getMaxPages() {
   return Math.max(0, Number(process.env.AVIA_PDF_MAX_PAGES || 0));
+}
+
+function getOcrConcurrency() {
+  const raw = Number(process.env.AVIA_OCR_CONCURRENCY || process.env.SILICONFLOW_VISION_CONCURRENCY || 5);
+  return Math.max(1, Math.min(8, Math.floor(raw)));
+}
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(limit, items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const item = items[index];
+      if (item === undefined) continue;
+      results[index] = await worker(item, index);
+    }
+  }));
+
+  return results;
 }
 
 async function renderPdfPages(pdfBuffer: Buffer): Promise<{ tempDir: string; metadata: RenderMetadata }> {
@@ -103,7 +140,8 @@ ${pagesMarkdown}`;
 
 export async function generateAviaReportMarkdownFromPdf(
   fileName: string,
-  pdfBuffer: Buffer
+  pdfBuffer: Buffer,
+  options: AviaReportMarkdownOptions = {}
 ): Promise<AviaReportMarkdownResult> {
   const warnings: string[] = [];
   if (!hasSiliconFlowVisionConfig()) {
@@ -125,13 +163,16 @@ export async function generateAviaReportMarkdownFromPdf(
     const { metadata } = rendered;
     console.info(`[avia-report-ocr] render done: ${fileName}, rendered=${metadata.renderedPageCount}/${metadata.pageCount}, extractedTextChars=${metadata.extractedTextChars}`);
     const siliconFlowConfig = getSiliconFlowVisionConfig();
-    const pages: Array<{ page: number; markdown: string; warning?: string }> = [];
+    const concurrency = getOcrConcurrency();
 
     if (metadata.isLikelyImagePdf) {
       warnings.push(`PDF 检测：该文件共 ${metadata.pageCount} 页，可提取文本仅 ${metadata.extractedTextChars} 字，按图片型 PDF 处理。`);
     }
 
-    for (const page of metadata.pages) {
+    console.info(`[avia-report-ocr] page analysis start: rendered=${metadata.pages.length}, concurrency=${concurrency}`);
+
+    let completedPages = 0;
+    const pages = await runWithConcurrency(metadata.pages, concurrency, async (page) => {
       console.info(`[avia-report-ocr] page ${page.page}/${metadata.pageCount} start`);
       const imageBuffer = await fs.readFile(page.path);
       let baiduOcrText = '';
@@ -152,19 +193,34 @@ export async function generateAviaReportMarkdownFromPdf(
           imageBuffer,
           baiduOcrText,
         }, siliconFlowConfig);
-        pages.push({ page: page.page, markdown, warning });
         console.info(`[avia-report-ocr] page ${page.page}/${metadata.pageCount} done, markdownChars=${markdown.length}`);
+        const result = { page: page.page, markdown, warning };
+        completedPages += 1;
+        await options.onProgress?.({
+          completedPages,
+          totalPages: metadata.pages.length,
+          currentPage: page.page,
+        });
+        return result;
       } catch (error) {
-        pages.push({
+        console.warn(`[avia-report-ocr] page ${page.page}/${metadata.pageCount} vision failed`, error);
+        const result = {
           page: page.page,
           markdown: baiduOcrText
             ? `### 第${page.page}页\n\n${baiduOcrText}\n\n#### 本页校验说明\n- 硅基流动视觉识别失败，仅保留百度 OCR 结果。\n- 不可靠或看不清内容：本页缺少版面结构与表格还原。`
             : '',
           warning: `硅基流动视觉识别失败：${error instanceof Error ? error.message : '未知错误'}`,
+        };
+        completedPages += 1;
+        await options.onProgress?.({
+          completedPages,
+          totalPages: metadata.pages.length,
+          currentPage: page.page,
         });
-        console.warn(`[avia-report-ocr] page ${page.page}/${metadata.pageCount} vision failed`, error);
+        return result;
       }
-    }
+    });
+    pages.sort((a, b) => a.page - b.page);
 
     const markdown = buildCombinedMarkdown({ fileName, metadata, pages });
     return {
