@@ -108,7 +108,9 @@ export interface TeacherIssueJobPayload {
   aviaDataText: string;
   transcriptText: string;
   sourceArtifactId?: string;
+  sourceArtifactKind?: ArtifactKind;
   sourceArtifactTitle?: string;
+  sourceArtifactContent?: string;
   aviaFilePath?: string;
   aviaFileName?: string;
   transcriptFileText?: string;

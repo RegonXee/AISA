@@ -244,7 +244,11 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
       if (transcriptFile) formData.append('transcriptFile', transcriptFile);
       if (artifact) {
         formData.append('sourceArtifactId', artifact.id);
+        formData.append('sourceArtifactKind', artifact.kind);
         formData.append('sourceArtifactTitle', artifact.title);
+      }
+      if (aiOutput.trim()) {
+        formData.append('sourceArtifactContent', aiOutput.trim());
       }
 
       const response = await fetch('/api/teacher-issues', { method: 'POST', body: formData });

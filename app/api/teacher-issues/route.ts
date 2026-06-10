@@ -88,7 +88,9 @@ export async function POST(request: NextRequest) {
     const aviaDataText = String(formData.get('aviaDataText') || '').trim();
     const teacherDemands = String(formData.get('teacherDemands') || '').trim();
     const sourceArtifactId = String(formData.get('sourceArtifactId') || '').trim();
+    const sourceArtifactKind = String(formData.get('sourceArtifactKind') || '').trim();
     const sourceArtifactTitle = String(formData.get('sourceArtifactTitle') || '').trim();
+    const sourceArtifactContent = String(formData.get('sourceArtifactContent') || '').trim();
 
     const rawAviaFile = formData.get('aviaFile') as File | null;
     const transcriptFile = formData.get('transcriptFile') as File | null;
@@ -124,6 +126,9 @@ export async function POST(request: NextRequest) {
     const store = filterStoreByUser(await readStore(), ownerUsername);
     const previousRecord = store.teacherIssueRecords[0];
     const previousMarkdown = compactTextForModel(previousRecord?.markdown || '', 8000);
+    const sourceArtifact = sourceArtifactId
+      ? store.artifacts.find((item) => item.id === sourceArtifactId)
+      : null;
 
     const payload: TeacherIssueJobPayload = {
       teacherName,
@@ -133,7 +138,9 @@ export async function POST(request: NextRequest) {
       aviaDataText,
       transcriptText,
       sourceArtifactId: sourceArtifactId || undefined,
-      sourceArtifactTitle: sourceArtifactTitle || undefined,
+      sourceArtifactKind: (sourceArtifactKind || sourceArtifact?.kind || undefined) as TeacherIssueJobPayload['sourceArtifactKind'],
+      sourceArtifactTitle: sourceArtifactTitle || sourceArtifact?.title || undefined,
+      sourceArtifactContent: sourceArtifactContent || sourceArtifact?.content || undefined,
       aviaFilePath: aviaFilePath || undefined,
       aviaFileName: rawAviaFile?.name || undefined,
       transcriptFileText: transcriptExtracted?.text || '',

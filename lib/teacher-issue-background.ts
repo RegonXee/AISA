@@ -124,6 +124,14 @@ ${payload.lessonText || '未提供'}
 ## 教师诉求
 ${payload.teacherDemands || '未提供'}
 
+## AI生成成果参考
+类型：${payload.sourceArtifactKind || '未提供'}
+标题：${payload.sourceArtifactTitle || '未提供'}
+
+注意：以下内容只用于理解前序 AI 建议、教学设计意图、作文评价建议或试卷讲评方案。不得以教师是否照搬 AI 成果作为评分或判断依据。
+
+${payload.sourceArtifactContent || '未提供'}
+
 ## 奥威亚系统数据
 ${payload.aviaDataText || '未提供'}
 
@@ -144,6 +152,7 @@ function buildMemoryInput(payload: TeacherIssueJobPayload, evidenceMarkdown: str
     aviaDataText: payload.aviaDataText,
     transcriptText: payload.transcriptText,
     sourceArtifactId: payload.sourceArtifactId || '',
+    sourceArtifactKind: payload.sourceArtifactKind || '',
     sourceArtifactTitle: payload.sourceArtifactTitle || '',
     evidenceMarkdown,
     imageCount: payload.imageCount || 0,
@@ -279,6 +288,7 @@ export async function processTeacherIssueJob(ownerUsername: string, jobId: strin
     const transcriptFileText = compactTextForModel(payload.transcriptFileText || '', 20000);
     const compactLessonText = compactTextForModel(payload.lessonText, 12000);
     const compactTeacherDemands = compactTextForModel(payload.teacherDemands, 6000);
+    const compactSourceArtifactContent = compactTextForModel(payload.sourceArtifactContent || '', 18000);
     const compactAviaData = compactTextForModel(
       [
         aviaReportMarkdown ? `奥威亚 PDF 结构化结果：\n${aviaReportMarkdown}` : '',
@@ -302,6 +312,7 @@ export async function processTeacherIssueJob(ownerUsername: string, jobId: strin
         transcriptText: compactTranscript,
         lessonText: compactLessonText,
         teacherDemands: compactTeacherDemands,
+        sourceArtifactContent: compactSourceArtifactContent,
         previousMarkdown,
       });
 
