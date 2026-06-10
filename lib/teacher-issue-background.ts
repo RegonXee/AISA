@@ -166,7 +166,7 @@ export async function processTeacherIssueJob(ownerUsername: string, jobId: strin
     const apiKey = process.env.DEEPSEEK_API_KEY;
     const aviaReportBuffer = await readOptionalFile(payload.aviaFilePath);
     const imageBuffers = await Promise.all((payload.imagePaths || []).map((item) => readOptionalFile(item)));
-    const validImageBuffers = imageBuffers.filter((item): item is Buffer => Boolean(item));
+    const validImageBuffers = imageBuffers.filter((item): item is NonNullable<typeof item> => item !== null);
 
     let aviaReportMarkdown = '';
     const imageWarnings: string[] = [];
