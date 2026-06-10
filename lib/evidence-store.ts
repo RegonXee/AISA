@@ -93,11 +93,51 @@ export interface TeacherIssueRecord {
 export interface PageMemory {
   id: string;
   ownerUsername: string;
-  pageKey: ArtifactKind | 'sidebar-chat';
+  pageKey: ArtifactKind | 'sidebar-chat' | 'teacher-issues';
   input: Record<string, unknown>;
   output: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TeacherIssueJobPayload {
+  teacherName: string;
+  evidenceTitle: string;
+  lessonText: string;
+  teacherDemands: string;
+  aviaDataText: string;
+  transcriptText: string;
+  sourceArtifactId?: string;
+  sourceArtifactTitle?: string;
+  aviaFilePath?: string;
+  aviaFileName?: string;
+  transcriptFileText?: string;
+  transcriptFileName?: string;
+  aviaFileText?: string;
+  aviaFileWarnings?: string[];
+  transcriptFileWarnings?: string[];
+  imageCount?: number;
+  imagePaths?: string[];
+  imageWarnings?: string[];
+  previousMarkdown?: string;
+}
+
+export type TeacherIssueJobStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface TeacherIssueJob {
+  id: string;
+  ownerUsername: string;
+  status: TeacherIssueJobStatus;
+  stage: string;
+  payload: TeacherIssueJobPayload;
+  recordId?: string;
+  resultMarkdown?: string;
+  evidenceMarkdown?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
 }
 
 export interface StoreData {
@@ -105,6 +145,7 @@ export interface StoreData {
   collaborationLogs: CollaborationLog[];
   improvementTasks: ImprovementTask[];
   teacherIssueRecords: TeacherIssueRecord[];
+  teacherIssueJobs: TeacherIssueJob[];
   pageMemories: PageMemory[];
 }
 
@@ -116,6 +157,7 @@ const EMPTY_STORE: StoreData = {
   collaborationLogs: [],
   improvementTasks: [],
   teacherIssueRecords: [],
+  teacherIssueJobs: [],
   pageMemories: [],
 };
 
@@ -141,6 +183,7 @@ export async function readStore(): Promise<StoreData> {
     collaborationLogs: parsed.collaborationLogs ?? [],
     improvementTasks: parsed.improvementTasks ?? [],
     teacherIssueRecords: parsed.teacherIssueRecords ?? [],
+    teacherIssueJobs: parsed.teacherIssueJobs ?? [],
     pageMemories: parsed.pageMemories ?? [],
   };
 }
@@ -156,6 +199,7 @@ export function filterStoreByUser(data: StoreData, ownerUsername: string): Store
     collaborationLogs: data.collaborationLogs.filter((item) => item.ownerUsername === ownerUsername),
     improvementTasks: data.improvementTasks.filter((item) => item.ownerUsername === ownerUsername),
     teacherIssueRecords: data.teacherIssueRecords.filter((item) => item.ownerUsername === ownerUsername),
+    teacherIssueJobs: data.teacherIssueJobs.filter((item) => item.ownerUsername === ownerUsername),
     pageMemories: data.pageMemories.filter((item) => item.ownerUsername === ownerUsername),
   };
 }
@@ -167,6 +211,7 @@ export async function clearStoreByUser(ownerUsername: string) {
     collaborationLogs: store.collaborationLogs.filter((item) => item.ownerUsername === ownerUsername).length,
     improvementTasks: store.improvementTasks.filter((item) => item.ownerUsername === ownerUsername).length,
     teacherIssueRecords: store.teacherIssueRecords.filter((item) => item.ownerUsername === ownerUsername).length,
+    teacherIssueJobs: store.teacherIssueJobs.filter((item) => item.ownerUsername === ownerUsername).length,
     pageMemories: store.pageMemories.filter((item) => item.ownerUsername === ownerUsername).length,
   };
 
@@ -174,6 +219,7 @@ export async function clearStoreByUser(ownerUsername: string) {
   store.collaborationLogs = store.collaborationLogs.filter((item) => item.ownerUsername !== ownerUsername);
   store.improvementTasks = store.improvementTasks.filter((item) => item.ownerUsername !== ownerUsername);
   store.teacherIssueRecords = store.teacherIssueRecords.filter((item) => item.ownerUsername !== ownerUsername);
+  store.teacherIssueJobs = store.teacherIssueJobs.filter((item) => item.ownerUsername !== ownerUsername);
   store.pageMemories = store.pageMemories.filter((item) => item.ownerUsername !== ownerUsername);
   await writeStore(store);
   return removed;
@@ -208,6 +254,42 @@ export async function upsertPageMemory(input: Omit<PageMemory, 'id' | 'createdAt
   store.pageMemories.unshift(memory);
   await writeStore(store);
   return memory;
+}
+
+export async function createTeacherIssueJob(input: Omit<TeacherIssueJob, 'id' | 'createdAt' | 'updatedAt'>) {
+  const store = await readStore();
+  const job: TeacherIssueJob = {
+    ...input,
+    id: makeId('teacher_issue_job'),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  store.teacherIssueJobs.unshift(job);
+  await writeStore(store);
+  return job;
+}
+
+export async function getTeacherIssueJob(ownerUsername: string, jobId: string) {
+  const store = await readStore();
+  return store.teacherIssueJobs.find((item) => item.ownerUsername === ownerUsername && item.id === jobId) || null;
+}
+
+export async function updateTeacherIssueJob(
+  jobId: string,
+  ownerUsername: string,
+  changes: Partial<
+    Pick<
+      TeacherIssueJob,
+      'status' | 'stage' | 'recordId' | 'resultMarkdown' | 'evidenceMarkdown' | 'error' | 'startedAt' | 'finishedAt'
+    >
+  >
+) {
+  const store = await readStore();
+  const job = store.teacherIssueJobs.find((item) => item.id === jobId && item.ownerUsername === ownerUsername);
+  if (!job) throw new Error('未找到教师诊断任务');
+  Object.assign(job, changes, { updatedAt: new Date().toISOString() });
+  await writeStore(store);
+  return job;
 }
 
 export async function createArtifact(input: Omit<Artifact, 'id' | 'createdAt'>) {

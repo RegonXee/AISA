@@ -5,7 +5,7 @@ import { requireUsername } from '@/lib/user-session';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const VALID_PAGE_KEYS: PageMemory['pageKey'][] = ['lesson-design', 'essay-eval', 'exam-review', 'sidebar-chat'];
+const VALID_PAGE_KEYS: PageMemory['pageKey'][] = ['lesson-design', 'essay-eval', 'exam-review', 'sidebar-chat', 'teacher-issues'];
 
 function parsePageKey(value: unknown): PageMemory['pageKey'] | null {
   const pageKey = String(value || '') as PageMemory['pageKey'];
