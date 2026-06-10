@@ -18,13 +18,25 @@ interface PageMemoryResponse {
 }
 
 interface JobResponse {
-  job?: {
-    id: string;
-    status: 'pending' | 'running' | 'completed' | 'failed';
-    stage?: string;
-    error?: string;
-    resultMarkdown?: string;
-    evidenceMarkdown?: string;
+  job?: JobInfo;
+}
+
+interface JobsResponse {
+  jobs?: JobInfo[];
+}
+
+interface JobInfo {
+  id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  stage?: string;
+  error?: string;
+  resultMarkdown?: string;
+  evidenceMarkdown?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  payload?: {
+    teacherName?: string;
+    evidenceTitle?: string;
   };
 }
 
@@ -45,6 +57,7 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
   const [evidenceResult, setEvidenceResult] = useState('');
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
+  const [latestJob, setLatestJob] = useState<JobInfo | null>(null);
   function readPageText(selector: string) {
     const node = document.querySelector(selector);
     if (node instanceof HTMLTextAreaElement || node instanceof HTMLInputElement) return node.value;
@@ -109,10 +122,41 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
     }
   }
 
+  async function loadLatestJob() {
+    try {
+      const response = await fetch('/api/teacher-issues');
+      const data: JobsResponse = await readJsonResponse(response);
+      const nextLatestJob = data.jobs?.[0] || null;
+      setLatestJob(nextLatestJob);
+      if (nextLatestJob && (nextLatestJob.status === 'pending' || nextLatestJob.status === 'running')) {
+        setLoading(true);
+        void waitForJob(nextLatestJob.id);
+      }
+    } catch {
+      // 忽略任务卡片读取失败
+    }
+  }
+
+  async function restoreLatestJob() {
+    if (latestJob?.resultMarkdown) {
+      setResult(latestJob.resultMarkdown);
+      setEvidenceResult(latestJob.evidenceMarkdown || '');
+      setStatus('已恢复最近一次后台诊断结果。');
+      return;
+    }
+    await loadMemory();
+  }
+
   useEffect(() => {
-    void loadMemory();
+    const refresh = () => {
+      void loadMemory();
+      void loadLatestJob();
+    };
+    refresh();
+    window.addEventListener('aisa-login', refresh);
     return () => {
       if (pollTimerRef.current) window.clearInterval(pollTimerRef.current);
+      window.removeEventListener('aisa-login', refresh);
     };
   }, []);
 
@@ -132,6 +176,7 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
         }
 
         if (currentJob.status === 'completed') {
+          setLatestJob(currentJob);
           setResult(currentJob.resultMarkdown || '');
           setEvidenceResult(currentJob.evidenceMarkdown || '');
           setStatus('后台识别已完成，结果已写入记忆。');
@@ -142,10 +187,12 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
         }
 
         if (currentJob.status === 'failed') {
+          setLatestJob(currentJob);
           setStatus(currentJob.error || '后台识别失败。');
           setLoading(false);
           if (pollTimerRef.current) window.clearInterval(pollTimerRef.current);
         } else {
+          setLatestJob(currentJob);
           setStatus(`后台识别中：${currentJob.stage || '处理中'}。关闭浏览器也会继续执行。`);
         }
       } catch (error) {
@@ -186,6 +233,7 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
       const data = await readJsonResponse(response);
       if (!response.ok) throw new Error(data.error || '提交教师诊断任务失败');
       const nextJobId = data.job?.id || '';
+      setLatestJob(data.job || null);
       setStatus(data.message || '后台任务已提交，完成后会自动写入记忆。');
       if (nextJobId) {
         void waitForJob(nextJobId);
@@ -243,12 +291,50 @@ export default function StepAviaDiagnosis({ aiOutput, artifact, onSaved }: Props
   }
 
   const canGenerate = Boolean(aviaFile || aviaImages.length > 0 || transcriptFile || aviaDataText.trim() || transcriptText.trim() || aiOutput.trim());
+  const latestJobStatus = latestJob?.status === 'completed'
+    ? { label: '已完成', className: 'border-secondary/40 bg-secondary/10 text-secondary' }
+    : latestJob?.status === 'failed'
+      ? { label: '失败', className: 'border-red-400/40 bg-red-500/10 text-red-300' }
+      : latestJob?.status === 'pending'
+        ? { label: '排队中', className: 'border-amber-400/40 bg-amber-500/10 text-amber-200' }
+        : latestJob?.status === 'running'
+          ? { label: '识别中', className: 'border-primary/40 bg-primary/10 text-primary' }
+          : { label: '暂无', className: 'border-dark-border bg-dark-bg text-gray-500' };
+  const latestJobTime = latestJob?.updatedAt ? new Date(latestJob.updatedAt).toLocaleString('zh-CN') : '';
 
   return (
     <section className="space-y-3">
       <div>
         <h3 className="text-base font-semibold text-white">步骤2-3：奥威亚数据诊断与改进</h3>
         <p className="mt-1 text-xs text-gray-500">上传后会在后台继续识别，结果会写入教师记忆；关闭浏览器也不会中断。</p>
+      </div>
+
+      <div className="rounded-lg border border-dark-border bg-dark-bg p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-gray-300">最近一次后台诊断</span>
+          <span className={`rounded-full border px-2 py-0.5 text-[11px] ${latestJobStatus.className}`}>
+            {latestJobStatus.label}
+          </span>
+        </div>
+        {latestJob ? (
+          <div className="space-y-2">
+            <p className="line-clamp-2 text-xs text-gray-400">
+              {latestJob.payload?.evidenceTitle || '未命名课例'}
+              {latestJob.payload?.teacherName ? ` · ${latestJob.payload.teacherName}` : ''}
+            </p>
+            {latestJobTime && <p className="text-[11px] text-gray-500">更新时间：{latestJobTime}</p>}
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={restoreLatestJob} disabled={latestJob.status !== 'completed'} className="rounded-md border border-dark-border px-2 py-1.5 text-xs text-gray-300 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50">
+                查看结果
+              </button>
+              <button onClick={() => void loadLatestJob()} className="rounded-md border border-dark-border px-2 py-1.5 text-xs text-gray-300 hover:text-secondary">
+                刷新状态
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-500">暂无后台任务。提交奥威亚数据后，这里会显示处理状态。</p>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
