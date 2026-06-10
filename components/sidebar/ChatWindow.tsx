@@ -7,21 +7,46 @@ interface ChatMessage {
   content: string;
 }
 
-const STORAGE_KEY = 'aisa_sidebar_chat';
+const PAGE_KEY = 'sidebar-chat';
 
 export default function ChatWindow({ aiOutput, step }: { aiOutput: string; step: number }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) setMessages(JSON.parse(raw));
-  }, []);
+  async function loadMemory() {
+    const response = await fetch(`/api/page-memory?pageKey=${PAGE_KEY}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const memory = data.memory;
+    if (!memory) return;
+    const input = memory.input || {};
+    if (Array.isArray(input.messages)) {
+      setMessages(input.messages.filter((item: ChatMessage) => item?.role && typeof item.content === 'string').slice(-20));
+    }
+    setInput(typeof input.input === 'string' ? input.input : '');
+  }
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-20)));
-  }, [messages]);
+    loadMemory();
+    window.addEventListener('aisa-login', loadMemory);
+    return () => window.removeEventListener('aisa-login', loadMemory);
+  }, []);
+
+  async function saveMemory(nextMessages = messages, nextInput = input) {
+    await fetch('/api/page-memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pageKey: PAGE_KEY,
+        input: {
+          messages: nextMessages.slice(-20),
+          input: nextInput,
+        },
+        output: nextMessages.filter((message) => message.role === 'assistant').at(-1)?.content || '',
+      }),
+    }).catch(() => undefined);
+  }
 
   async function send() {
     if (!input.trim()) return;
@@ -37,9 +62,13 @@ export default function ChatWindow({ aiOutput, step }: { aiOutput: string; step:
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '侧边栏对话失败');
-      setMessages([...nextMessages, { role: 'assistant', content: data.content }]);
+      const completedMessages: ChatMessage[] = [...nextMessages, { role: 'assistant', content: data.content }];
+      setMessages(completedMessages);
+      await saveMemory(completedMessages, '');
     } catch (error) {
-      setMessages([...nextMessages, { role: 'assistant', content: error instanceof Error ? error.message : '对话失败' }]);
+      const failedMessages: ChatMessage[] = [...nextMessages, { role: 'assistant', content: error instanceof Error ? error.message : '对话失败' }];
+      setMessages(failedMessages);
+      await saveMemory(failedMessages, '');
     } finally {
       setLoading(false);
     }
@@ -67,4 +96,3 @@ export default function ChatWindow({ aiOutput, step }: { aiOutput: string; step:
     </section>
   );
 }
-

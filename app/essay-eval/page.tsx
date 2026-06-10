@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
 import type { SidebarArtifact } from '@/components/sidebar/SidebarPanel';
 
 type Grade = '七年级' | '八年级' | '九年级';
+const PAGE_KEY = 'essay-eval';
 
 export default function EssayEvalPage() {
   const [topic, setTopic] = useState('');
@@ -17,6 +18,42 @@ export default function EssayEvalPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const savePageMemory = useCallback(async (output = result) => {
+    await fetch('/api/page-memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pageKey: PAGE_KEY,
+        input: {
+          topic,
+          essay,
+          grade,
+          imageNames: images.map((image) => image.name),
+        },
+        output,
+      }),
+    }).catch(() => undefined);
+  }, [essay, grade, images, result, topic]);
+
+  const loadPageMemory = useCallback(async () => {
+    const response = await fetch(`/api/page-memory?pageKey=${PAGE_KEY}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const memory = data.memory;
+    if (!memory) return;
+    const input = memory.input || {};
+    setTopic(typeof input.topic === 'string' ? input.topic : '');
+    setEssay(typeof input.essay === 'string' ? input.essay : '');
+    if (['七年级', '八年级', '九年级'].includes(input.grade)) setGrade(input.grade);
+    setResult(typeof memory.output === 'string' ? memory.output : '');
+  }, []);
+
+  useEffect(() => {
+    loadPageMemory();
+    window.addEventListener('aisa-login', loadPageMemory);
+    return () => window.removeEventListener('aisa-login', loadPageMemory);
+  }, [loadPageMemory]);
 
   const handleImageSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
@@ -89,12 +126,13 @@ export default function EssayEvalPage() {
         setResult(fullResponse);
       }
       await saveArtifact(fullResponse);
+      await savePageMemory(fullResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : '未知错误');
     } finally {
       setIsLoading(false);
     }
-  }, [topic, essay, grade, images]);
+  }, [topic, essay, grade, images, savePageMemory]);
 
   const downloadDoc = useCallback(async () => {
     try {

@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
 import type { SidebarArtifact } from '@/components/sidebar/SidebarPanel';
+
+const PAGE_KEY = 'exam-review';
 
 export default function ExamReviewPage() {
   const [excelFile, setExcelFile] = useState<File | null>(null);
@@ -17,6 +19,40 @@ export default function ExamReviewPage() {
   const examImageRef = useRef<HTMLInputElement>(null);
   const examFileRef = useRef<HTMLInputElement>(null);
   const hasExamInput = examImages.length > 0 || !!examFile || examText.trim().length > 0;
+
+  const savePageMemory = useCallback(async (output = result) => {
+    await fetch('/api/page-memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pageKey: PAGE_KEY,
+        input: {
+          examText,
+          excelFileName: excelFile?.name || '',
+          examFileName: examFile?.name || '',
+          examImageNames: examImages.map((image) => image.name),
+        },
+        output,
+      }),
+    }).catch(() => undefined);
+  }, [examFile, examImages, examText, excelFile, result]);
+
+  const loadPageMemory = useCallback(async () => {
+    const response = await fetch(`/api/page-memory?pageKey=${PAGE_KEY}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const memory = data.memory;
+    if (!memory) return;
+    const input = memory.input || {};
+    setExamText(typeof input.examText === 'string' ? input.examText : '');
+    setResult(typeof memory.output === 'string' ? memory.output : '');
+  }, []);
+
+  useEffect(() => {
+    loadPageMemory();
+    window.addEventListener('aisa-login', loadPageMemory);
+    return () => window.removeEventListener('aisa-login', loadPageMemory);
+  }, [loadPageMemory]);
 
   async function saveArtifact(content: string) {
     const response = await fetch('/api/artifacts', {
@@ -74,12 +110,13 @@ export default function ExamReviewPage() {
         setResult(fullResponse);
       }
       await saveArtifact(fullResponse);
+      await savePageMemory(fullResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : '未知错误');
     } finally {
       setIsLoading(false);
     }
-  }, [excelFile, examImages, examFile, examText, hasExamInput]);
+  }, [excelFile, examImages, examFile, examText, hasExamInput, savePageMemory]);
 
   const downloadDoc = useCallback(async () => {
     try {

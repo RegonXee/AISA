@@ -90,11 +90,22 @@ export interface TeacherIssueRecord {
   updatedAt: string;
 }
 
+export interface PageMemory {
+  id: string;
+  ownerUsername: string;
+  pageKey: ArtifactKind | 'sidebar-chat';
+  input: Record<string, unknown>;
+  output: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StoreData {
   artifacts: Artifact[];
   collaborationLogs: CollaborationLog[];
   improvementTasks: ImprovementTask[];
   teacherIssueRecords: TeacherIssueRecord[];
+  pageMemories: PageMemory[];
 }
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -105,6 +116,7 @@ const EMPTY_STORE: StoreData = {
   collaborationLogs: [],
   improvementTasks: [],
   teacherIssueRecords: [],
+  pageMemories: [],
 };
 
 function makeId(prefix: string) {
@@ -129,6 +141,7 @@ export async function readStore(): Promise<StoreData> {
     collaborationLogs: parsed.collaborationLogs ?? [],
     improvementTasks: parsed.improvementTasks ?? [],
     teacherIssueRecords: parsed.teacherIssueRecords ?? [],
+    pageMemories: parsed.pageMemories ?? [],
   };
 }
 
@@ -143,6 +156,7 @@ export function filterStoreByUser(data: StoreData, ownerUsername: string): Store
     collaborationLogs: data.collaborationLogs.filter((item) => item.ownerUsername === ownerUsername),
     improvementTasks: data.improvementTasks.filter((item) => item.ownerUsername === ownerUsername),
     teacherIssueRecords: data.teacherIssueRecords.filter((item) => item.ownerUsername === ownerUsername),
+    pageMemories: data.pageMemories.filter((item) => item.ownerUsername === ownerUsername),
   };
 }
 
@@ -153,14 +167,47 @@ export async function clearStoreByUser(ownerUsername: string) {
     collaborationLogs: store.collaborationLogs.filter((item) => item.ownerUsername === ownerUsername).length,
     improvementTasks: store.improvementTasks.filter((item) => item.ownerUsername === ownerUsername).length,
     teacherIssueRecords: store.teacherIssueRecords.filter((item) => item.ownerUsername === ownerUsername).length,
+    pageMemories: store.pageMemories.filter((item) => item.ownerUsername === ownerUsername).length,
   };
 
   store.artifacts = store.artifacts.filter((item) => item.ownerUsername !== ownerUsername);
   store.collaborationLogs = store.collaborationLogs.filter((item) => item.ownerUsername !== ownerUsername);
   store.improvementTasks = store.improvementTasks.filter((item) => item.ownerUsername !== ownerUsername);
   store.teacherIssueRecords = store.teacherIssueRecords.filter((item) => item.ownerUsername !== ownerUsername);
+  store.pageMemories = store.pageMemories.filter((item) => item.ownerUsername !== ownerUsername);
   await writeStore(store);
   return removed;
+}
+
+export async function getPageMemory(ownerUsername: string, pageKey: PageMemory['pageKey']) {
+  const store = await readStore();
+  return store.pageMemories.find((item) => item.ownerUsername === ownerUsername && item.pageKey === pageKey) || null;
+}
+
+export async function upsertPageMemory(input: Omit<PageMemory, 'id' | 'createdAt' | 'updatedAt'>) {
+  const store = await readStore();
+  const existing = store.pageMemories.find(
+    (item) => item.ownerUsername === input.ownerUsername && item.pageKey === input.pageKey
+  );
+  const now = new Date().toISOString();
+
+  if (existing) {
+    existing.input = input.input;
+    existing.output = input.output;
+    existing.updatedAt = now;
+    await writeStore(store);
+    return existing;
+  }
+
+  const memory: PageMemory = {
+    ...input,
+    id: makeId('page_memory'),
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.pageMemories.unshift(memory);
+  await writeStore(store);
+  return memory;
 }
 
 export async function createArtifact(input: Omit<Artifact, 'id' | 'createdAt'>) {

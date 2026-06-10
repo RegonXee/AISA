@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
 import type { SidebarArtifact } from '@/components/sidebar/SidebarPanel';
 
 type Grade = '七年级' | '八年级' | '九年级';
 type Period = '1课时' | '2课时' | '3课时';
+const PAGE_KEY = 'lesson-design';
 
 export default function LessonDesignPage() {
   const [text, setText] = useState('');
@@ -21,6 +22,45 @@ export default function LessonDesignPage() {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const demandFileInputRef = useRef<HTMLInputElement>(null);
+
+  const savePageMemory = useCallback(async (output = result) => {
+    await fetch('/api/page-memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pageKey: PAGE_KEY,
+        input: {
+          text,
+          grade,
+          period,
+          demands,
+          imageNames: images.map((image) => image.name),
+          demandFileName: demandFile?.name || '',
+        },
+        output,
+      }),
+    }).catch(() => undefined);
+  }, [demandFile, demands, grade, images, period, result, text]);
+
+  const loadPageMemory = useCallback(async () => {
+    const response = await fetch(`/api/page-memory?pageKey=${PAGE_KEY}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const memory = data.memory;
+    if (!memory) return;
+    const input = memory.input || {};
+    setText(typeof input.text === 'string' ? input.text : '');
+    setDemands(typeof input.demands === 'string' ? input.demands : '');
+    if (['七年级', '八年级', '九年级'].includes(input.grade)) setGrade(input.grade);
+    if (['1课时', '2课时', '3课时'].includes(input.period)) setPeriod(input.period);
+    setResult(typeof memory.output === 'string' ? memory.output : '');
+  }, []);
+
+  useEffect(() => {
+    loadPageMemory();
+    window.addEventListener('aisa-login', loadPageMemory);
+    return () => window.removeEventListener('aisa-login', loadPageMemory);
+  }, [loadPageMemory]);
 
   const handleImageSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
@@ -91,12 +131,13 @@ export default function LessonDesignPage() {
         setResult(fullResponse);
       }
       await saveArtifact(fullResponse);
+      await savePageMemory(fullResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : '未知错误');
     } finally {
       setIsLoading(false);
     }
-  }, [text, grade, period, images, demands, demandFile]);
+  }, [text, grade, period, images, demands, demandFile, savePageMemory]);
 
   const downloadDoc = useCallback(async () => {
     try {

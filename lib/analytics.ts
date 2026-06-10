@@ -201,6 +201,7 @@ export function buildMonthlyTrend(data: StoreData) {
         collaborationLogs: data.collaborationLogs.filter((item) => item.createdAt.slice(0, 7) <= month),
         improvementTasks: data.improvementTasks.filter((item) => item.createdAt.slice(0, 7) <= month),
         teacherIssueRecords: data.teacherIssueRecords.filter((item) => item.createdAt.slice(0, 7) <= month),
+        pageMemories: data.pageMemories.filter((item) => item.createdAt.slice(0, 7) <= month),
       };
       const profile = calculateTeacherProfile(monthData);
       const overall = calculateOverallEvaluation(monthData);
